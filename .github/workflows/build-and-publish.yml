@@ -1,0 +1,90 @@
+name: Build and publish
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: Build & verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore & build backend
+        run: |
+          dotnet restore backend/OpenWork.sln
+          dotnet build backend/OpenWork.sln --no-restore -c Release
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install & build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+  docker:
+    name: Build & push container image
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:${{ github.sha }}
+
+  deploy:
+    name: Deploy to Azure (opt-in)
+    needs: docker
+    runs-on: ubuntu-latest
+    # This job is intentionally disabled until an Azure subscription/resource group is
+    # configured. Set the repository variable ENABLE_AZURE_DEPLOY=true and provide the
+    # secrets below once a deployment target has been confirmed - see README.md for why
+    # this isn't wired up automatically.
+    if: ${{ vars.ENABLE_AZURE_DEPLOY == 'true' }}
+    steps:
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy container to Azure Container Apps
+        uses: azure/container-apps-deploy-action@v2
+        with:
+          imageToDeploy: ghcr.io/${{ github.repository }}:${{ github.sha }}
+          resourceGroup: ${{ vars.AZURE_RESOURCE_GROUP }}
+          containerAppName: ${{ vars.AZURE_CONTAINER_APP_NAME }}
+          containerAppEnvironment: ${{ vars.AZURE_CONTAINER_APP_ENVIRONMENT }}
+          targetPort: 8080

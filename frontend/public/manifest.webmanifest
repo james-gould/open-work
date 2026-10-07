@@ -1,0 +1,15 @@
+{
+  "name": "Open Work",
+  "short_name": "Open Work",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#2b2f38",
+  "theme_color": "#2b2f38",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

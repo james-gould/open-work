@@ -1,0 +1,12 @@
+services:
+  open-work:
+    build: .
+    image: open-work:local
+    ports:
+      - "8080:8080"
+    volumes:
+      - open-work-data:/data
+    restart: unless-stopped
+
+volumes:
+  open-work-data:
