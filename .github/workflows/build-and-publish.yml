@@ -90,11 +90,18 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      # Uses raw ARM REST (az rest) instead of `az containerapp update`: the
+      # containerapp CLI extension does a client-side Microsoft.App
+      # provider-registration check that gets stuck reporting "Registering"
+      # indefinitely in this tenant, even though the provider works fine via
+      # ARM directly (confirmed: az rest reads/writes to existing
+      # Microsoft.App resources succeed regardless of that status).
       - name: Update Container App image
         uses: azure/CLI@v2
         with:
           inlineScript: |
-            az containerapp update \
-              --name ${{ vars.AZURE_CONTAINER_APP_NAME }} \
+            az rest --method patch \
+              --url "https://management.azure.com/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ vars.AZURE_RESOURCE_GROUP }}/providers/Microsoft.App/containerApps/${{ vars.AZURE_CONTAINER_APP_NAME }}?api-version=2024-03-01" \
+              --body "{\"properties\":{\"template\":{\"containers\":[{\"name\":\"open-work\",\"image\":\"ghcr.io/${{ github.repository }}:${{ github.sha }}\"}]}}}"
               --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
               --image ghcr.io/${{ github.repository }}:${{ github.sha }}
