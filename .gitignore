@@ -20,8 +20,9 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
-# Local data volume used by docker-compose
-data/
+# Local data volume used by docker-compose (root-level only; anchored so it
+# doesn't also match backend/src/OpenWork.Api/Data/)
+/data/
 
 corp-root-ca.crt
 Dockerfile.local-verify
