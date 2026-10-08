@@ -1,167 +1,129 @@
 # Deployment status & next steps
 
-This documents where Azure deployment of Open Work stands. The app itself is
-finished, built, verified, and committed; **Azure deployment is blocked on a
-permissions grant only the account/subscription owner can make** (see below).
-Everything that could be prepared in advance - the Bicep IaC, the CI deploy
-step, this doc - is done and ready to run the moment that's unblocked.
+**The app is deployed and live** in Azure Container Apps.
 
-## Target environment (confirmed by user)
+```
+https://openwork-app.delightfulpebble-ad1c96d3.uksouth.azurecontainerapps.io
+```
+
+`/healthz` returns `{"status":"ok"}`. CI auto-deploys on every push to `main`
+via GitHub OIDC (no stored secrets). One known limitation remains: **data is
+not yet persistent across restarts** (see below) - that's the next real task.
+
+## Target environment
 
 - Tenant: `16b3c013-d300-468d-ac64-7eda0820b6d3`
 - Subscription: `2b4c73d5-769b-4b2f-9f5f-420c55fdee99` (`MCAPS-Hybrid-REQ-146787-2026-jamesgould`)
-- Resource group: **`rg-open-work`** in `uksouth` - a brand-new, isolated
-  group (user asked that it not share any existing infra). The subscription
-  already has ~17 unrelated resource groups (`McapsGovernance`, `rg-ahm-*`,
-  `jgould-dev-testing`, etc.) - do not reuse or touch these.
+- Resource group: `rg-open-work` in `uksouth` - isolated, dedicated to this
+  app, no shared infra with the subscription's other resource groups.
 
-## ⚠️ Blocking issue: no write access, even inside the manually-created RG
+## What actually blocked this, and how each was resolved
 
-`rg-open-work` now **exists** (user created it manually, `uksouth`, empty -
-confirmed via `group_list`). However, deploying into it still fails:
+### 1. Identity mismatch (the real root cause of the original "AuthorizationFailed")
 
+The `azure-mcp-*` MCP tools authenticate as a **different Entra object id**
+than this machine's real interactive user, even though both resolve to the
+same UPN (`jamesgould@microsoft.com`):
+
+- `3b305683-2eab-47e5-ba11-d5f26d653e94` - Reader only (inherited from a
+  management-group policy). This is who `azure-mcp-*` tools ran as, which is
+  why every read (list subscriptions/RGs/role assignments) worked but every
+  write/deploy failed with `AuthorizationFailed`.
+- `bec79daa-7e4a-4555-acfb-59f019c529f2` - the real identity, holds `Owner`
+  at subscription scope. Confirmed via a fresh interactive `az login` on the
+  actual desktop (WAM broker/account picker), then `az ad signed-in-user show`.
+
+**Workaround**: run all write/deploy operations through the `az` CLI after an
+interactive `az login`, not through the `azure-mcp-*` tools. Reads via
+`azure-mcp-*` are fine.
+
+### 2. GHCR image was private
+
+`james-gould/open-work` is a private repo, so its GHCR package
+(`ghcr.io/james-gould/open-work`) inherited private visibility - Container
+Apps' anonymous pull got `DENIED`. GitHub's REST API does **not** support
+changing a repo-linked container package's visibility (confirmed: `PATCH
+/user/packages/container/...` 404s; it's web-UI only), so instead the
+Container App was wired with registry credentials:
+
+```powershell
+az rest --method patch --url "https://management.azure.com/subscriptions/<sub>/resourceGroups/rg-open-work/providers/Microsoft.App/containerApps/openwork-app?api-version=2024-03-01" --body '{
+  "properties": { "configuration": { "secrets": [{ "name": "ghcr-pat", "value": "<gh auth token with read:packages>" }],
+  "registries": [{ "server": "ghcr.io", "username": "james-gould", "passwordSecretRef": "ghcr-pat" }] } }
+}'
 ```
-AuthorizationFailed: The client 'jamesgould@microsoft.com' ... does not have
-authorization to perform action 'Microsoft.Resources/deployments/whatIf/action'
-over scope '/subscriptions/2b4c73d5-769b-4b2f-9f5f-420c55fdee99/resourcegroups/rg-open-work/...'
-```
 
-Root cause, confirmed directly:
+(`gh auth refresh -s read:packages` was needed first to get a token with
+that scope; the default `gh`/Actions token doesn't have it.)
 
-- `role_assignment_list` scoped to `rg-open-work` returns **zero
-  assignments** - nobody (including the creator) has any role on it yet.
-  Creating a resource group does **not** automatically grant the creator a
-  role on it in this subscription's configuration.
-- `role_assignment_list` scoped to the whole subscription also contains
-  **no assignment at all** for `jamesgould@microsoft.com`
-  (`3b305683-2eab-47e5-ba11-d5f26d653e94`). The Reader-level access that
-  *does* work (listing subscriptions, resource groups, role assignments)
-  is inherited from a management-group level grant above the subscription
-  (MCAPS tenants commonly apply a broad Reader policy at that level), which
-  explains why reads succeed while every write/deploy action fails.
+### 3. CI service principal: tenant policy blocks long-lived secrets
 
-**To unblock, grant `jamesgould@microsoft.com` the `Contributor` role,
-scoped to `rg-open-work`** (tightest blast radius, and sufficient - no ACR,
-no custom role assignments needed by the template itself):
+`az ad sp create-for-rbac --sdk-auth` (and `az ad app credential reset`)
+both failed with `Credential lifetime exceeds the max value allowed as per
+assigned policy` - this tenant enforces short-lived/no app password
+credentials. **Fix: switched to GitHub Actions OIDC** (federated identity),
+which needs no secret at all:
 
-- Portal: `rg-open-work` → **Access control (IAM)** → **Add role
-  assignment** → Role: `Contributor` → Member: `jamesgould@microsoft.com` →
-  Review + assign.
-- Or CLI, run by anyone who already has `Owner`/`User Access Administrator`
-  on the subscription or this RG:
-  ```powershell
-  az role assignment create --assignee jamesgould@microsoft.com `
-    --role Contributor `
-    --scope /subscriptions/2b4c73d5-769b-4b2f-9f5f-420c55fdee99/resourceGroups/rg-open-work
-  ```
+- App registration `sp-open-work-ci` (appId `2515a71e-12d0-42a9-9435-db1ae787dd08`),
+  `Contributor` on `rg-open-work` only.
+- Federated credential trusting `repo:james-gould/open-work:ref:refs/heads/main`.
+- GitHub repo secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
+  `AZURE_SUBSCRIPTION_ID` (no client secret). Variables:
+  `ENABLE_AZURE_DEPLOY=true`, `AZURE_RESOURCE_GROUP=rg-open-work`,
+  `AZURE_CONTAINER_APP_NAME=openwork-app`.
+- `.github/workflows/build-and-publish.yml`'s `deploy` job uses
+  `azure/login@v2` with `client-id`/`tenant-id`/`subscription-id` +
+  `permissions: id-token: write` instead of a `creds:` secret.
 
-Once that's in place, re-run `az deployment group create` (step 2 below) -
-no further investigation needed.
+### 4. Azure Files volume mount: policy blocks it entirely (⚠️ open follow-up)
 
-## Done so far
+The original Bicep mounted a `/data` Azure Files share into the container so
+SQLite + generated VAPID keys would survive restarts. This **cannot work in
+this tenant**: the storage account's `allowSharedKeyAccess` and
+`publicNetworkAccess` are both forced by policy (`allowSharedKeyAccess:
+false`, `publicNetworkAccess: Disabled` - confirmed by attempting
+`az storage account update` for both; the call reports success but the
+values silently stay unchanged, i.e. policy-enforced, not just defaults).
+Azure Container Apps' `AzureFile` volume type **only** supports account-key
+SMB auth (no managed-identity/Entra option), and the storage account has no
+reachable public endpoint for SMB either way. Mount attempts failed with
+`mount error(13): Permission denied`.
 
-- **App**: backend `.NET 10` + frontend `React 19`, built and verified to
-  compile and run correctly. Committed locally to `main` (commits `3eddee2`,
-  `5f080f1`, plus infra commits below) - **still not pushed to GitHub**
-  (nothing has asked for that yet, and pushing now would trigger CI that
-  can't deploy anyway).
-- **Infra as code**: `infra/main.bicep` + `infra/main.parameters.json` -
-  compiles cleanly (`az bicep build`, zero errors/warnings). Provisions,
-  all inside `rg-open-work` only:
-  - Log Analytics workspace (Container Apps logs)
-  - Storage account + Azure Files share (`openwork-data`, 5 GiB default),
-    mounted into the Container Apps environment and then into the container
-    at `/data` - this is where the SQLite DB and generated VAPID keys live
-    (see `VapidKeyProvider.cs`), so state survives restarts/redeploys.
-  - Container Apps managed environment
-  - Container App: single container, image `ghcr.io/james-gould/open-work:latest`
-    by default, **target port 8080** (matches the `Dockerfile`'s
-    `ASPNETCORE_URLS=http://+:8080`), external ingress, `minReplicas: 1` /
-    `maxReplicas: 1` (an always-on instance is required: the
-    `NudgeBackgroundService` needs to keep running, and SQLite-on-a-volume
-    doesn't support >1 replica), 0.5 vCPU / 1 Gi.
-  - Deliberately **no ACR**: CI already pushes to GHCR
-    (`ghcr.io/james-gould/open-work`), so the Container App pulls directly
-    from there. If the GHCR package is left **public** (one-time: repo →
-    Packages → open-work → Package settings → Change visibility), no
-    registry credentials are needed at all. If it must stay private, the
-    template accepts `ghcrUsername` + `ghcrToken` (a PAT with
-    `read:packages`) and wires up a Container Apps secret instead.
-- **CI** (`.github/workflows/build-and-publish.yml`): `deploy` job (gated
-  behind `vars.ENABLE_AZURE_DEPLOY == 'true'`, currently unset/disabled) now
-  does `az containerapp update --image ghcr.io/<repo>:<sha>` against the
-  already-deployed Container App, rather than trying to provision anything -
-  infra provisioning is a one-time, manual `az deployment group create`
-  (below), CI only ever updates the image after that.
-- Confirmed Docker Desktop is installed locally
-  (`%LOCALAPPDATA%\Programs\DockerDesktop`), started it, confirmed the engine
-  responds (`docker info` → Server Version 29.8.2). Frontend (`npm run build`)
-  and backend (`dotnet build`/`dotnet run`) both independently verified
-  working in earlier sessions.
-- Installed Azure CLI 2.91.0 locally (`winget install --id Microsoft.AzureCLI
-  -e --source winget`; the default `msstore` source fails with a DNS error in
-  this environment, `--source winget` is required). Not logged in - see
-  below.
+**Temporary fix applied**: removed the volume mount; the container now uses
+its own ephemeral filesystem for `/data/openwork.db` (`infra/main.bicep` and
+the live Container App were both updated to match). **This means all data
+(work items, VAPID keys) is lost on every restart/redeploy/scale event.**
+The storage account + file share are still deployed but unused - safe to
+leave for now, cheap, or remove in a future cleanup.
 
-## Known non-blocking loose ends
+**Real fix, not yet done**: move persistence off SQLite+Files entirely onto
+something Container Apps can reach over the network without a file mount -
+Azure Database for PostgreSQL Flexible Server (or Azure SQL Basic), using
+the Container App's system-assigned managed identity for Entra-only auth
+(no secrets, compatible with this tenant's shared-key-disabled policy).
+Needs: new Bicep resource, EF Core provider swap (`Npgsql.EntityFrameworkCore.PostgreSQL`
+or `Microsoft.EntityFrameworkCore.SqlServer`), connection string via managed
+identity, and regenerating the EF migration the "Daily Driver" work just
+added. Scoped as a separate follow-up, not done in this pass.
 
-- **Full multi-stage `docker build .` has not completed successfully in this
-  sandboxed dev environment.** It fails at `dotnet restore` with a TLS
-  handshake failure reaching `api.nuget.org`, caused by this machine's
-  corporate network/proxy intercepting outbound HTTPS from containers
-  specifically (regular host-level `dotnet restore`/`npm run build` both
-  work fine, and even trusting the exported corporate root CA inside the
-  image didn't fix it - it looks like a network-path issue, not a cert-trust
-  one). **This is specific to this sandboxed machine's network, not the
-  Dockerfile or the app** - GitHub Actions' hosted runners have no such
-  proxy and already build this exact Dockerfile successfully in the
-  `docker` CI job. No Dockerfile changes were made for this; it isn't a
-  defect to fix, just an environment limitation of local verification here.
-- `az login` was attempted (`--use-device-code`) to get a CLI session that
-  could run `az group create` as a fallback once permissions are granted,
-  but device-code login needs a human to complete it in a browser, so it
-  was left unfinished/stopped. Not needed if access is granted to the
-  identity the `azure-mcp-*` tools already use.
-- Backend has 2 pre-existing NU1903 advisory warnings (`Microsoft.OpenApi
-  2.0.0`, `SQLitePCLRaw.lib.e_sqlite3 2.1.11`), transitive, not addressed -
-  see README.
+## Current infra state (`rg-open-work`, `uksouth`)
 
-## Exact steps to finish, once Contributor access is granted
+| Resource | Status |
+|---|---|
+| `openwork-logs` (Log Analytics) | ✅ healthy |
+| `openworksttt7a3fgnr2bss` (Storage + Files share) | ✅ healthy, currently unused (see above) |
+| `openwork-env` (Container Apps environment) | ✅ healthy |
+| `openwork-app` (Container App) | ✅ healthy, running, `/healthz` returns 200 |
 
-1. `rg-open-work` already exists (`uksouth`) - nothing to create. Just make
-   sure whoever/whatever runs the next step has the `Contributor` grant
-   above in effect (role assignments can take a minute or two to propagate).
-2. Deploy the infra:
-   ```powershell
-   az deployment group create -g rg-open-work `
-     --template-file infra/main.bicep `
-     --parameters infra/main.parameters.json `
-     --subscription 2b4c73d5-769b-4b2f-9f5f-420c55fdee99
-   ```
-   This stands the app up immediately pulling
-   `ghcr.io/james-gould/open-work:latest` - but that GHCR package doesn't
-   exist yet until step 3, so the Container App will show a pull failure
-   until then (expected, self-heals once the image exists).
-3. Push the local commits to GitHub (`git push origin main`) so the existing
-   `build`/`docker` CI jobs run and publish
-   `ghcr.io/james-gould/open-work:latest` to GHCR. Make that package public
-   (Package settings → Change visibility) so the Container App (and CI's
-   future `containerapp update` calls) need no registry credentials.
-4. Set these in the GitHub repo (Settings → Secrets and variables → Actions):
-   - Variables: `ENABLE_AZURE_DEPLOY=true`, `AZURE_RESOURCE_GROUP=rg-open-work`,
-     `AZURE_CONTAINER_APP_NAME=openwork-app`
-   - Secret: `AZURE_CREDENTIALS` - a service principal JSON, created once
-     with `az` authenticated as the now-Contributor identity:
-     ```powershell
-     az ad sp create-for-rbac --name sp-open-work-ci `
-       --role Contributor `
-       --scopes /subscriptions/2b4c73d5-769b-4b2f-9f5f-420c55fdee99/resourceGroups/rg-open-work `
-       --sdk-auth
-     ```
-     (paste the JSON output directly as the secret value)
-5. From then on, every push to `main` rebuilds, republishes to GHCR, and
-   updates the Container App's running image automatically.
-6. Verify: hit `https://<containerAppFqdn output>/healthz` - should return
-   `{"status":"ok"}`. Get the FQDN from the `az deployment group create`
-   output, or `az containerapp show -g rg-open-work -n openwork-app --query
-   properties.configuration.ingress.fqdn`.
+## Still to do
+
+- [ ] Replace ephemeral SQLite with a networked DB (Postgres/SQL Flexible
+      Server + managed identity) so data survives restarts - see "real fix"
+      above. This is the main remaining gap.
+- [ ] Once that's done, remove the now-unused storage account + file share
+      from `infra/main.bicep` (or repurpose for something else).
+- [ ] Review/merge the "Daily Driver" feature branch
+      (`james-gould-daily-driver-agent`) - see `DAILY_DRIVER.md`.
+- [ ] Decide whether to make the GHCR package public anyway (simpler long
+      term than rotating the `read:packages` PAT used as the registry
+      secret) via the GitHub web UI (Package settings → Change visibility).

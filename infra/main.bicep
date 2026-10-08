@@ -151,6 +151,14 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
           env: [
             {
               name: 'ConnectionStrings__Default'
+              // NOTE: this tenant's policy forces allowSharedKeyAccess=false and
+              // publicNetworkAccess=Disabled on storage accounts, which breaks Azure
+              // Container Apps' AzureFile volume mount (it only supports account-key
+              // SMB auth, and the storage account's public endpoint is unreachable).
+              // Falling back to the container's own ephemeral filesystem for now -
+              // data does NOT survive restarts/revisions. See DEPLOYMENT.md for the
+              // real fix (Azure SQL/Postgres with managed-identity auth, no file mount
+              // needed).
               value: 'Data Source=/data/openwork.db'
             }
             {
@@ -158,19 +166,6 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
               value: vapidSubject
             }
           ]
-          volumeMounts: [
-            {
-              volumeName: 'data'
-              mountPath: '/data'
-            }
-          ]
-        }
-      ]
-      volumes: [
-        {
-          name: 'data'
-          storageType: 'AzureFile'
-          storageName: envStorage.name
         }
       ]
       scale: {

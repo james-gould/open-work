@@ -74,12 +74,21 @@ jobs:
     # ENABLE_AZURE_DEPLOY=true and the secrets/vars below once that's done - this job
     # only updates the already-deployed Container App's image, it does not provision
     # infrastructure.
+    #
+    # Auth uses GitHub OIDC federated credentials (no client secret stored anywhere) -
+    # the CI tenant's policy disallows long-lived app secrets, so sp-open-work-ci has a
+    # federated credential trusting repo:james-gould/open-work:ref:refs/heads/main.
     if: ${{ vars.ENABLE_AZURE_DEPLOY == 'true' }}
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - name: Azure login
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Update Container App image
         uses: azure/CLI@v2
