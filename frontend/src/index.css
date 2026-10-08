@@ -205,6 +205,15 @@ body {
   white-space: pre-wrap;
 }
 
+.work-item-reference {
+  margin: 0;
+}
+
+.work-item-reference a {
+  color: var(--accent, #4f9df5);
+  word-break: break-all;
+}
+
 .work-item-meta {
   display: grid;
   grid-template-columns: auto 1fr;

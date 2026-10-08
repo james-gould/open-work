@@ -13,9 +13,10 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 
 const string DevCorsPolicy = "DevCors";
 
-var connectionString = builder.Configuration.GetConnectionString("Default") ?? "Data Source=openwork.db";
+var connectionString = builder.Configuration.GetConnectionString("Default")
+    ?? throw new InvalidOperationException("ConnectionStrings:Default is required (Azure SQL Database connection string).");
 
-builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlite(connectionString));
+builder.Services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
 builder.Services.AddScoped<VapidKeyProvider>();
 builder.Services.AddHostedService<NudgeBackgroundService>();
 builder.Services.AddEndpointsApiExplorer();
@@ -31,24 +32,10 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Ensure the sqlite file (and its parent directory) exist before the app starts serving traffic.
+// Apply any pending EF Core migrations against the Azure SQL Database on startup.
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    var dataSource = connectionString.Split(';')
-        .Select(part => part.Split('=', 2))
-        .FirstOrDefault(kv => kv.Length == 2 && kv[0].Trim().Equals("Data Source", StringComparison.OrdinalIgnoreCase))?[1]
-        .Trim();
-
-    if (!string.IsNullOrEmpty(dataSource))
-    {
-        var directory = Path.GetDirectoryName(Path.GetFullPath(dataSource));
-        if (!string.IsNullOrEmpty(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
-    }
-
     db.Database.Migrate();
 }
 

@@ -20,6 +20,7 @@ const DEFAULT_PRIORITY = PRIORITY_OPTIONS[0].value;
 export function AddItemForm({ onAdd }: Props) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [reference, setReference] = useState("");
   const [priority, setPriority] = useState<number>(DEFAULT_PRIORITY);
   const [completionDate, setCompletionDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -33,11 +34,13 @@ export function AddItemForm({ onAdd }: Props) {
       await onAdd({
         title: title.trim(),
         body: body.trim() || null,
+        reference: reference.trim() || null,
         priority,
         completionDueAt: completionDate ? new Date(completionDate).toISOString() : null
       });
       setTitle("");
       setBody("");
+      setReference("");
       setPriority(DEFAULT_PRIORITY);
       setCompletionDate("");
     } finally {
@@ -59,6 +62,12 @@ export function AddItemForm({ onAdd }: Props) {
         value={body}
         onChange={(e) => setBody(e.target.value)}
         rows={2}
+      />
+      <input
+        type="url"
+        placeholder="Reference link (optional)"
+        value={reference}
+        onChange={(e) => setReference(e.target.value)}
       />
       <div className="add-item-row">
         <label>

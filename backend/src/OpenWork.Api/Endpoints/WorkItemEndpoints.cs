@@ -96,6 +96,7 @@ public static class WorkItemEndpoints
         {
             Title = request.Title.Trim(),
             Body = request.Body,
+            Reference = string.IsNullOrWhiteSpace(request.Reference) ? null : request.Reference.Trim(),
             Priority = request.Priority,
             RequiresActionAt = request.RequiresActionAt,
             CompletionDueAt = request.CompletionDueAt,
@@ -127,6 +128,11 @@ public static class WorkItemEndpoints
         if (request.BodySet)
         {
             item.Body = request.Body;
+        }
+
+        if (request.ReferenceSet)
+        {
+            item.Reference = string.IsNullOrWhiteSpace(request.Reference) ? null : request.Reference.Trim();
         }
 
         if (request.Priority is { } priority)

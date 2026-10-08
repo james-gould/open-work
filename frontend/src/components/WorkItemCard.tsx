@@ -36,6 +36,13 @@ export function WorkItemCard({ item, onUpdate, onComplete, onDelete }: Props) {
       {expanded && (
         <div className="work-item-details">
           {item.body && <p className="work-item-body">{item.body}</p>}
+          {item.reference && (
+            <p className="work-item-reference">
+              <a href={item.reference} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+                {item.reference}
+              </a>
+            </p>
+          )}
 
           <dl className="work-item-meta">
             <dt>Requires action since</dt>
@@ -45,6 +52,21 @@ export function WorkItemCard({ item, onUpdate, onComplete, onDelete }: Props) {
           </dl>
 
           <div className="work-item-controls">
+            <label>
+              Reference link
+              <input
+                type="url"
+                placeholder="https://…"
+                defaultValue={item.reference ?? ""}
+                onBlur={(e) =>
+                  void onUpdate(item.id, {
+                    referenceSet: true,
+                    reference: e.target.value.trim() || null
+                  })
+                }
+              />
+            </label>
+
             <label>
               Category override
               <select

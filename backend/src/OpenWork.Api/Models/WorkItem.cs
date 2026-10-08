@@ -12,6 +12,13 @@ public class WorkItem
 
     public string? Body { get; set; }
 
+    /// <summary>
+    /// Optional URL pointing at the thing this item is about (a PR, an issue, a doc, a
+    /// chat thread, etc.) - rendered as a clickable link in the UI. Purely informational;
+    /// no validation beyond trimming, since it may be any kind of URI (https, mailto, etc.).
+    /// </summary>
+    public string? Reference { get; set; }
+
     /// <summary>User-assigned priority number. Higher = more important. Used as the final tie-breaker.</summary>
     public int Priority { get; set; }
 

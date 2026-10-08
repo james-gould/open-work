@@ -7,6 +7,7 @@ public record WorkItemResponse(
     Guid Id,
     string Title,
     string? Body,
+    string? Reference,
     int Priority,
     DateTimeOffset? RequiresActionAt,
     DateTimeOffset? CompletionDueAt,
@@ -24,7 +25,8 @@ public record CreateWorkItemRequest(
     int Priority,
     DateTimeOffset? RequiresActionAt,
     DateTimeOffset? CompletionDueAt,
-    WorkItemStatus Status = WorkItemStatus.Backlog
+    WorkItemStatus Status = WorkItemStatus.Backlog,
+    string? Reference = null
 );
 
 /// <summary>
@@ -36,6 +38,8 @@ public record UpdateWorkItemRequest(
     string? Title = null,
     bool BodySet = false,
     string? Body = null,
+    bool ReferenceSet = false,
+    string? Reference = null,
     int? Priority = null,
     bool RequiresActionAtSet = false,
     DateTimeOffset? RequiresActionAt = null,

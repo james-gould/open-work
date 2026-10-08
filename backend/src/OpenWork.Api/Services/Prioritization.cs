@@ -63,6 +63,7 @@ public static class Prioritization
         item.Id,
         item.Title,
         item.Body,
+        item.Reference,
         item.Priority,
         item.RequiresActionAt,
         item.CompletionDueAt,

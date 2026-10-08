@@ -3,13 +3,25 @@
 // Provisions everything needed to run the Open Work container as a single
 // Azure Container App, pulling the image straight from GHCR (where CI
 // already pushes it - see .github/workflows/build-and-publish.yml), with
-// persistent state on an Azure Files share mounted at /data (the same
-// volume the Dockerfile expects).
+// persistent state in an Azure Database for PostgreSQL Flexible Server
+// (Burstable B1ms, ~$15-20/mo). The connection string (including the admin
+// password) is stored as a Container App secret, never in plain env vars
+// or source control.
+//
+// (Two earlier revisions tried other options that didn't pan out in this
+// tenant: an Azure Files share mounted at /data - blocked by a policy
+// forcing allowSharedKeyAccess=false/publicNetworkAccess=Disabled on
+// storage accounts, which Container Apps' AzureFile volume type can't use;
+// and Azure SQL Database - this subscription's offer type rejects new SQL
+// Database logical servers in every region tried with
+// "RegionDoesNotAllowProvisioning". PostgreSQL Flexible Server hit neither
+// restriction. See DEPLOYMENT.md for the full story.)
 //
 // Deploy into a dedicated, empty resource group, e.g.:
 //   az group create -n rg-open-work -l uksouth
 //   az deployment group create -g rg-open-work -f infra/main.bicep \
-//       -p namePrefix=openwork vapidSubject=mailto:you@example.com
+//       -p namePrefix=openwork vapidSubject=mailto:you@example.com \
+//       -p postgresAdminPassword=<a strong password, not committed anywhere>
 //
 // GHCR auth: if the GHCR package is public (Settings > Package > Change
 // visibility, one-time), leave ghcrUsername/ghcrToken empty and the
@@ -38,16 +50,19 @@ param ghcrToken string = ''
 @description('Subject (mailto: or https: URI) sent with Web Push VAPID claims.')
 param vapidSubject string = 'mailto:admin@example.com'
 
-@description('Size, in GiB, of the Azure Files share backing /data.')
-param dataShareQuotaGiB int = 5
+@description('Admin username for the PostgreSQL Flexible Server.')
+param postgresAdminLogin string = 'openworkadmin'
+
+@description('Admin password for the PostgreSQL Flexible Server. Required - choose a strong value, pass it on the command line only (never commit it).')
+@secure()
+param postgresAdminPassword string
 
 var sanitizedPrefix = toLower(namePrefix)
-var shortPrefix = take(sanitizedPrefix, 9)
-var storageAccountName = '${shortPrefix}st${uniqueString(resourceGroup().id)}'
-var logAnalyticsName = '${sanitizedPrefix}-logs'
 var containerAppEnvName = '${sanitizedPrefix}-env'
 var containerAppName = '${sanitizedPrefix}-app'
-var dataShareName = 'openwork-data'
+var logAnalyticsName = '${sanitizedPrefix}-logs'
+var postgresServerName = '${sanitizedPrefix}-pg-${uniqueString(resourceGroup().id)}'
+var postgresDatabaseName = '${sanitizedPrefix}db'
 var usesPrivateGhcr = !empty(ghcrToken)
 
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
@@ -61,29 +76,54 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   }
 }
 
-resource storage 'Microsoft.Storage/storageAccounts@2023-01-01' = {
-  name: storageAccountName
+// Burstable B1ms (1 vCore, 2GiB RAM) + 32GB storage - cheapest tier that still gets
+// predictable always-on performance; well within the ~$30/mo ceiling for a low-traffic
+// single-user app, and simpler than serverless/auto-pause compute for a first pass.
+resource postgresServer 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
+  name: postgresServerName
   location: location
   sku: {
-    name: 'Standard_LRS'
+    name: 'Standard_B1ms'
+    tier: 'Burstable'
   }
-  kind: 'StorageV2'
   properties: {
-    minimumTlsVersion: 'TLS1_2'
-    allowBlobPublicAccess: false
+    version: '16'
+    administratorLogin: postgresAdminLogin
+    administratorLoginPassword: postgresAdminPassword
+    storage: {
+      storageSizeGB: 32
+    }
+    backup: {
+      backupRetentionDays: 7
+      geoRedundantBackup: 'Disabled'
+    }
+    highAvailability: {
+      mode: 'Disabled'
+    }
+    network: {
+      publicNetworkAccess: 'Enabled'
+    }
   }
 }
 
-resource fileServices 'Microsoft.Storage/storageAccounts/fileServices@2023-01-01' = {
-  parent: storage
-  name: 'default'
+// Postgres Flexible Server's documented "allow any Azure-originating connection" rule -
+// Container Apps has no static egress IP without VNet integration, so this is the
+// practical option for a single-container app reaching a public Postgres endpoint.
+resource postgresAllowAzureServices 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2024-08-01' = {
+  parent: postgresServer
+  name: 'AllowAllAzureServicesAndResourcesWithinAzureIps'
+  properties: {
+    startIpAddress: '0.0.0.0'
+    endIpAddress: '0.0.0.0'
+  }
 }
 
-resource dataShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2023-01-01' = {
-  parent: fileServices
-  name: dataShareName
+resource postgresDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2024-08-01' = {
+  parent: postgresServer
+  name: postgresDatabaseName
   properties: {
-    shareQuota: dataShareQuotaGiB
+    charset: 'UTF8'
+    collation: 'en_US.utf8'
   }
 }
 
@@ -101,19 +141,6 @@ resource containerAppEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
   }
 }
 
-resource envStorage 'Microsoft.App/managedEnvironments/storages@2024-03-01' = {
-  parent: containerAppEnv
-  name: 'openwork-data-storage'
-  properties: {
-    azureFile: {
-      accountName: storage.name
-      accountKey: storage.listKeys().keys[0].value
-      shareName: dataShareName
-      accessMode: 'ReadWrite'
-    }
-  }
-}
-
 resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: containerAppName
   location: location
@@ -125,12 +152,20 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
         targetPort: 8080
         transport: 'auto'
       }
-      secrets: usesPrivateGhcr ? [
-        {
-          name: 'ghcr-token'
-          value: ghcrToken
-        }
-      ] : []
+      secrets: concat(
+        [
+          {
+            name: 'db-connection-string'
+            value: 'Host=${postgresServer.properties.fullyQualifiedDomainName};Database=${postgresDatabaseName};Username=${postgresAdminLogin};Password=${postgresAdminPassword};SSL Mode=Require;Trust Server Certificate=true'
+          }
+        ],
+        usesPrivateGhcr ? [
+          {
+            name: 'ghcr-token'
+            value: ghcrToken
+          }
+        ] : []
+      )
       registries: usesPrivateGhcr ? [
         {
           server: 'ghcr.io'
@@ -151,15 +186,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
           env: [
             {
               name: 'ConnectionStrings__Default'
-              // NOTE: this tenant's policy forces allowSharedKeyAccess=false and
-              // publicNetworkAccess=Disabled on storage accounts, which breaks Azure
-              // Container Apps' AzureFile volume mount (it only supports account-key
-              // SMB auth, and the storage account's public endpoint is unreachable).
-              // Falling back to the container's own ephemeral filesystem for now -
-              // data does NOT survive restarts/revisions. See DEPLOYMENT.md for the
-              // real fix (Azure SQL/Postgres with managed-identity auth, no file mount
-              // needed).
-              value: 'Data Source=/data/openwork.db'
+              secretRef: 'db-connection-string'
             }
             {
               name: 'Vapid__Subject'
@@ -184,3 +211,9 @@ output containerAppName string = containerApp.name
 
 @description('Name of the created Container Apps managed environment.')
 output containerAppEnvironmentName string = containerAppEnv.name
+
+@description('Fully-qualified domain name of the PostgreSQL Flexible Server.')
+output postgresServerFqdn string = postgresServer.properties.fullyQualifiedDomainName
+
+@description('Name of the PostgreSQL database.')
+output postgresDatabaseName string = postgresDatabase.name

@@ -4,6 +4,7 @@ export interface WorkItem {
   id: string;
   title: string;
   body: string | null;
+  reference: string | null;
   priority: number;
   requiresActionAt: string | null;
   completionDueAt: string | null;
@@ -17,6 +18,7 @@ export interface WorkItem {
 export interface CreateWorkItemRequest {
   title: string;
   body?: string | null;
+  reference?: string | null;
   priority: number;
   requiresActionAt?: string | null;
   completionDueAt?: string | null;
@@ -26,6 +28,8 @@ export interface UpdateWorkItemRequest {
   title?: string;
   bodySet?: boolean;
   body?: string | null;
+  referenceSet?: boolean;
+  reference?: string | null;
   priority?: number;
   requiresActionAtSet?: boolean;
   requiresActionAt?: string | null;
