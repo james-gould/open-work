@@ -32,7 +32,16 @@ public class WorkItem
     /// </summary>
     public WorkItemCategory? ManualCategory { get; set; }
 
-    public bool IsDone { get; set; }
+    /// <summary>
+    /// Where this item sits in its own progression (backlog/in progress/blocked/done),
+    /// independent of the urgency <see cref="WorkItemCategory"/>. This is what lets a
+    /// query distinguish "Critical but already being worked" from "Critical and
+    /// genuinely needs starting" - e.g. the hourly reminder sweep skips InProgress items.
+    /// </summary>
+    public WorkItemStatus Status { get; set; } = WorkItemStatus.Backlog;
+
+    /// <summary>Back-compat convenience view of <see cref="Status"/> for existing API consumers.</summary>
+    public bool IsDone => Status == WorkItemStatus.Done;
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 

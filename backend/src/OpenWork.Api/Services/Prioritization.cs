@@ -68,6 +68,7 @@ public static class Prioritization
         item.CompletionDueAt,
         Resolve(item, now),
         item.ManualCategory is not null,
+        item.Status,
         item.IsDone,
         item.CreatedAt,
         item.UpdatedAt
