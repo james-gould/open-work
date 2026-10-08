@@ -12,6 +12,7 @@ public static class WorkItemEndpoints
     public static RouteGroupBuilder MapWorkItemEndpoints(this RouteGroupBuilder group)
     {
         group.MapGet("/", GetAll);
+        group.MapGet("/next", GetNext);
         group.MapPost("/", Create);
         group.MapPatch("/{id:guid}", Update);
         group.MapDelete("/{id:guid}", Delete);
@@ -20,18 +21,63 @@ public static class WorkItemEndpoints
         return group;
     }
 
-    private static async Task<Ok<List<WorkItemResponse>>> GetAll(AppDbContext db, bool includeDone = false)
+    /// <summary>
+    /// Lists work items, optionally filtered by progression <paramref name="status"/> and/or
+    /// urgency <paramref name="category"/> (repeat the query key for multiple values, e.g.
+    /// <c>?status=Backlog&amp;status=Blocked</c>). Always sorted top-down by priority
+    /// (category, then requires-action age, then due date, then manual priority number).
+    /// </summary>
+    private static async Task<Ok<List<WorkItemResponse>>> GetAll(
+        AppDbContext db, bool includeDone = false, WorkItemStatus[]? status = null, WorkItemCategory[]? category = null)
     {
         var now = DateTimeOffset.UtcNow;
         var query = db.WorkItems.AsQueryable();
-        if (!includeDone)
+
+        if (status is { Length: > 0 })
         {
-            query = query.Where(w => !w.IsDone);
+            query = query.Where(w => status.Contains(w.Status));
+        }
+        else if (!includeDone)
+        {
+            query = query.Where(w => w.Status != WorkItemStatus.Done);
         }
 
         var items = await query.ToListAsync();
-        var sorted = Prioritization.Sort(items, now).Select(w => Prioritization.ToResponse(w, now)).ToList();
-        return TypedResults.Ok(sorted);
+        return TypedResults.Ok(SortAndFilterByCategory(items, category, now));
+    }
+
+    /// <summary>
+    /// Returns the single highest-priority item that is not Done (and, by default, not
+    /// already InProgress) - this is the backing query for the <c>/pending</c> command and
+    /// the hourly reminder sweep: "what's the one thing I should pick up next?".
+    /// Pass <paramref name="excludeInProgress"/>=false to also see in-flight work.
+    /// </summary>
+    private static async Task<Results<Ok<WorkItemResponse>, NoContent>> GetNext(
+        AppDbContext db, bool excludeInProgress = true, WorkItemCategory[]? category = null)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var query = db.WorkItems.Where(w => w.Status != WorkItemStatus.Done);
+        if (excludeInProgress)
+        {
+            query = query.Where(w => w.Status != WorkItemStatus.InProgress);
+        }
+
+        var items = await query.ToListAsync();
+        var next = SortAndFilterByCategory(items, category, now).FirstOrDefault();
+        return next is null ? TypedResults.NoContent() : TypedResults.Ok(next);
+    }
+
+    private static List<WorkItemResponse> SortAndFilterByCategory(
+        IEnumerable<WorkItem> items, WorkItemCategory[]? category, DateTimeOffset now)
+    {
+        var sorted = Prioritization.Sort(items, now);
+        if (category is { Length: > 0 })
+        {
+            var allowed = category.ToHashSet();
+            sorted = sorted.Where(w => allowed.Contains(Prioritization.Resolve(w, now)));
+        }
+
+        return sorted.Select(w => Prioritization.ToResponse(w, now)).ToList();
     }
 
     private static async Task<Results<Created<WorkItemResponse>, ValidationProblem>> Create(
@@ -53,6 +99,7 @@ public static class WorkItemEndpoints
             Priority = request.Priority,
             RequiresActionAt = request.RequiresActionAt,
             CompletionDueAt = request.CompletionDueAt,
+            Status = request.Status,
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -102,9 +149,14 @@ public static class WorkItemEndpoints
             item.ManualCategory = request.ManualCategory;
         }
 
-        if (request.IsDone is { } isDone)
+        if (request.Status is { } status)
         {
-            item.IsDone = isDone;
+            item.Status = status;
+        }
+        else if (request.IsDone is { } isDone)
+        {
+            // Legacy field: still accepted so old clients keep working, mapped onto Status.
+            item.Status = isDone ? WorkItemStatus.Done : WorkItemStatus.Backlog;
         }
 
         item.UpdatedAt = DateTimeOffset.UtcNow;
@@ -140,7 +192,7 @@ public static class WorkItemEndpoints
             return TypedResults.NotFound();
         }
 
-        item.IsDone = isDone;
+        item.Status = isDone ? WorkItemStatus.Done : WorkItemStatus.Backlog;
         item.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync();
         return TypedResults.Ok(Prioritization.ToResponse(item, DateTimeOffset.UtcNow));

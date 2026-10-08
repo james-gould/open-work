@@ -17,7 +17,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             entity.HasKey(w => w.Id);
             entity.Property(w => w.Title).IsRequired();
-            entity.HasIndex(w => w.IsDone);
+            entity.HasIndex(w => w.Status);
+            entity.Ignore(w => w.IsDone);
         });
 
         modelBuilder.Entity<PushSubscriptionRecord>(entity =>
