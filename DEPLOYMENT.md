@@ -74,6 +74,18 @@ which needs no secret at all:
 - `.github/workflows/build-and-publish.yml`'s `deploy` job uses
   `azure/login@v2` with `client-id`/`tenant-id`/`subscription-id` +
   `permissions: id-token: write` instead of a `creds:` secret.
+- Two follow-up snags, both now fixed: (a) this repo has GitHub's
+  "immutable OIDC subject" setting on, so the subject claim embeds numeric
+  owner/repo IDs (`repo:james-gould@<id>/open-work@<id>:ref:refs/heads/main`)
+  rather than the plain-name format - the federated credential's `subject`
+  had to match that exact string (check via `gh api
+  repos/<owner>/<repo>/actions/oidc/customization/sub`); (b) the
+  image-update step uses `az rest --method patch` instead of `az
+  containerapp update`, because the `containerapp` CLI extension's
+  client-side `Microsoft.App` provider-registration check gets stuck
+  reporting `"Registering"` indefinitely in this tenant even though the
+  provider works fine via ARM directly. **CI now deploys green end-to-end
+  on every push to `main`** - confirmed working.
 
 ### 4. Azure Files volume mount: policy blocks it entirely (⚠️ open follow-up)
 
