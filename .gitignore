@@ -22,3 +22,7 @@ Thumbs.db
 
 # Local data volume used by docker-compose
 data/
+
+corp-root-ca.crt
+Dockerfile.local-verify
+

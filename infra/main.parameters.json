@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "namePrefix": {
+      "value": "openwork"
+    },
+    "containerImage": {
+      "value": "ghcr.io/james-gould/open-work:latest"
+    },
+    "vapidSubject": {
+      "value": "mailto:admin@example.com"
+    }
+  }
+}
