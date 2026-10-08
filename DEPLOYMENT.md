@@ -166,15 +166,16 @@ before sending the PATCH - see `.github/workflows/build-and-publish.yml`.
 | Resource | Status |
 |---|---|
 | `openwork-logs` (Log Analytics) | ✅ healthy |
-| `openworksttt7a3fgnr2bss` (Storage + Files share) | ✅ healthy, unused leftover from the Azure Files attempt - safe to delete |
 | `openwork-pg-<suffix>` (PostgreSQL Flexible Server) | ✅ healthy, holds all persistent app data |
 | `openwork-env` (Container Apps environment) | ✅ healthy |
 | `openwork-app` (Container App) | ✅ healthy, running, `/healthz` returns 200, persists across restarts |
 
+The leftover storage account from the Azure Files attempt
+(`openworksttt7a3fgnr2bss`) has been deleted - the resource group now only
+contains resources the app actually uses.
+
 ## Still to do
 
-- [ ] Delete the now-fully-unused storage account (`openworksttt7a3fgnr2bss`)
-      left over from the Azure Files attempt.
 - [ ] Review/merge the "Daily Driver" feature branch
       (`james-gould-daily-driver-agent`) - see `DAILY_DRIVER.md`.
 - [ ] Decide whether to make the GHCR package public anyway (simpler long
