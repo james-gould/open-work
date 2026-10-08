@@ -50,11 +50,13 @@ repo (`backend/src/OpenWork.Api`). Each item (`WorkItem`) has:
   set explicitly (not derived). This is what lets us tell "Critical but
   already being worked" apart from "Critical and genuinely needs starting".
 
-The API base URL is an assumption: default to `http://localhost:5080` for a
-locally-running dev instance. Once the Azure Container Apps deployment
-(`rg-open-work`, tracked separately) is live, replace this with its real
-public URL - ask the user for it if you don't already know it, rather than
-guessing.
+The API base URL (`OPEN_WORK_API_BASE_URL`) is the live Azure Container Apps
+deployment: `https://openwork-app.delightfulpebble-ad1c96d3.uksouth.azurecontainerapps.io`.
+Use `http://localhost:5080` only if the user says they're running a local dev
+instance.
+
+Items synced from Copilot sessions carry `externalKey: "copilot-session:<sessionId>"`;
+POSTing the same key again returns the existing item instead of a duplicate.
 
 ## Responding to `/pending`
 
@@ -82,9 +84,9 @@ asks you to sync/check now, or the automation isn't enabled yet:
    `args: { apiBaseUrl: "<the real API base URL>", creatorSessionId: "<this
    session's id, if you want a reminder delivered here>", dryRun: false }`.
    If the workflow isn't registered in this session yet, re-author it first
-   with `dynamic_workflows_manage` (`operation: "author"`) - see
-   `DAILY_DRIVER.md` in the repo root for the exact run function, which you
-   should keep byte-for-byte in sync with the one embedded there.
+   with `dynamic_workflows_manage` (`operation: "author"`) using the `meta`
+   and `run` from the "Canonical workflow source" section of
+   `DAILY_DRIVER.md` in the repo root, verbatim.
 2. Summarize the result briefly: how many items were synced, and whether any
    Critical/Warning items are pending and not in progress.
 

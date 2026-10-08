@@ -21,14 +21,20 @@ work in flight with Copilot" doesn't silently vanish out of sight.
    - New `GET /api/workitems/next` returns the single highest-priority item
      that is not `Done` and (by default) not `InProgress` - the "what should I
      do next" endpoint. Optional `?category=` filters it further, and
-     `?includeInProgress=true` opts back in if ever needed.
+     `?excludeInProgress=false` opts back in if ever needed.
    - `Create`/`Update` accept an explicit `status`; omitting it still works via
      the legacy `isDone` boolean (mapped to `Done`/`Backlog`).
+   - `Create` also accepts `manualCategory` (pins the category, same as the
+     override on the card) and `externalKey`. When an item with that
+     `externalKey` already exists - in any status, including `Done` - the
+     existing item is returned with `200 OK` instead of creating a duplicate.
+     The hourly sweep uses `copilot-session:<sessionId>` so re-running every
+     hour never piles up duplicates, and an item you've marked Done stays done.
    - A first-ever EF Core migration (`InitialCreate`) was added, since the app
      previously used `Database.EnsureCreated()` with no migration history at
      all. `Program.cs` now calls `Database.Migrate()` on startup.
    - **Verified**: `dotnet build` succeeds; ran the API live against a fresh
-     SQLite DB, created Critical+Blocked and Critical+InProgress items via the
+     SQLite DB (the store at the time - it is now PostgreSQL), created Critical+Blocked and Critical+InProgress items via the
      real HTTP API, and confirmed `/next` correctly returns only the Blocked
      one, and that `status=`/`category=` filters work. Frontend (`npm run
      build`) still compiles cleanly against the changed API shape.
@@ -40,7 +46,8 @@ work in flight with Copilot" doesn't silently vanish out of sight.
    (evidence: unresolved todos, a pending plan awaiting approval, or
    `awaiting_input`), then the workflow POSTs each item to
    `/api/workitems` as a normal `WorkItem` (category/status inferred by the
-   sub-agent, priority derived from category).
+   sub-agent, priority derived from category). At most one item per session,
+   keyed by `externalKey: "copilot-session:<sessionId>"` for de-duplication.
 
 3. **The `/pending` command** - researched properly rather than guessed (see
    "What's real vs. convention" below). Implemented as a named custom agent,
@@ -101,8 +108,8 @@ The workflow (`daily-driver-hourly-sweep`) does, every hour:
 
 1. **Extract** - a sub-agent scans other in-flight Copilot sessions for
    genuinely open work (not finished/idle sessions).
-2. **Sync** - upserts what it finds into Open Work as `WorkItem`s via the
-   real HTTP API.
+2. **Sync** - creates what it finds in Open Work as `WorkItem`s via the
+   real HTTP API (sessions already tracked are left untouched, via `externalKey`).
 3. **Check** - queries Open Work for `Critical`/`Warning` items whose status
    is `Backlog` or `Blocked` (explicitly **excludes** `InProgress` and `Done`
    per your instruction - if you've started it, you won't be nagged about it).
@@ -121,23 +128,20 @@ visible there. If you'd rather reminders land somewhere else (e.g. a specific
 chat you keep pinned), update the `creatorSessionId` value in the Automation
 (Automations view) to that session's id.
 
-**One-time manual step you must do (I cannot do this for you):** I drafted
-the hourly Automation via `save_workflow` with `user_confirmation: "dialog"`,
-which opens the workflow editor for review rather than silently saving it -
-confirmed by checking `list_workflows()` immediately after, which returned
-empty. **You need to open the Automations view, review the drafted "Daily
-Driver hourly sweep" automation, and click Save/Enable.** This is a deliberate
-one-click human-in-the-loop checkpoint (I didn't want an agent silently
-scheduling an hourly job that pages you without you seeing it first), and I
-have no way to click through that dialog myself.
+**Enabling**: the Automation ("Daily Driver hourly sweep") was drafted via
+the review dialog and has since been saved and enabled in the Automations
+view. Its prompt reads the workflow source from
+[Canonical workflow source](#canonical-workflow-source) below on every run, so
+changing the workflow only means editing that section (on the branch checked
+out in the local `open-work` clone - the Automation runs there).
 
 **Design workaround worth knowing about**: dynamic workflows authored via
 `dynamic_workflows_manage` are documented as "extension-authored,
 session-scoped," and it's unverified whether a workflow registered in *this*
 session persists and is runnable from the *brand-new* session a scheduled
 Automation spawns each hour. Rather than rely on unverified cross-session
-persistence, the Automation's saved prompt embeds the **full workflow source
-verbatim** and re-authors it (idempotently - `dynamic_workflows_manage` author
+persistence, the Automation reads the **full workflow source** from this file
+and re-authors it (idempotently - `dynamic_workflows_manage` author
 is safe to repeat) at the start of every hourly run, before calling it. This
 is slightly wasteful (re-registers an already-identical workflow every hour)
 but removes the persistence risk entirely.
@@ -148,23 +152,9 @@ but removes the persistence risk entirely.
   Copilot."** Per your own note, this was a working assumption I ran with:
   extracted to-dos are synced in as real `WorkItem`s, not kept in a separate
   system.
-- **`apiBaseUrl` placeholder**: the Automation currently points at
-  `http://localhost:5080` (the backend's dev default). Since the Azure
-  Container Apps deployment (`rg-open-work`) is mid-flight and explicitly out
-  of scope for this task, I could not supply a real public URL. **Update the
-  `apiBaseUrl` in the Automation once that deployment is live** (or keep
-  `localhost:5080` if you intend to keep running Open Work locally and the
-  hourly job's own CLI session also runs locally - behavior will differ
-  depending on what host the scheduled session actually runs on; this is
-  flagged as unverified).
-- **`Migrate()` vs. `EnsureCreated()`**: switching to real EF Core migrations
-  is the correct long-term fix, but any already-deployed SQLite DB that was
-  created via the old `EnsureCreated()` call has no `__EFMigrationsHistory`
-  table. If such a DB exists in the Azure deployment, the first
-  `Migrate()` call against it will likely fail (tables already exist). This is
-  a known, disclosed tradeoff - out of scope to fix here per your instructions,
-  but you'll need to either delete/recreate that DB, or manually stamp its
-  migration history, before this code runs against it.
+- **`apiBaseUrl`**: the Automation points at the live Azure Container Apps
+  deployment (`https://openwork-app.delightfulpebble-ad1c96d3.uksouth.azurecontainerapps.io`).
+  If the API is unreachable the run logs that and stops quietly.
 - **Severity inference for extracted items** defaults to conservative
   mapping: "stuck/blocking/awaiting your decision" → `Critical`; "should
   happen soon" → `Warning`; everything else → `Normal`/`Acceptable`. The
@@ -175,11 +165,166 @@ but removes the persistence risk entirely.
 
 ## Not fully automated / flagged limitations
 
-- Enabling the hourly Automation requires your one-time manual click (above) -
-  I deliberately used the review dialog rather than silently registering it.
 - Cross-session persistence of the dynamic workflow registration across the
   Automation's fresh scheduled sessions is unverified; worked around by
   re-authoring it every run (see above) rather than assumed to be safe.
 - No true OS-level push/toast notification exists in my toolset; the reminder
   is delivered as an in-app session message, which only surfaces if you still
   have that session open/visible.
+
+## Canonical workflow source
+
+This is the source of truth for `daily-driver-hourly-sweep`. The hourly
+Automation reads this `meta` and `run` and re-authors the workflow with
+`dynamic_workflows_manage` (`operation: "author"`) before each run.
+
+### meta
+
+```json
+{
+  "name": "daily-driver-hourly-sweep",
+  "description": "Daily Driver hourly reminder sweep: extracts pending to-dos from in-flight Copilot sessions via a sub-agent (one per session), upserts them into Open Work as WorkItems (de-duplicated via externalKey copilot-session:<sessionId>), then checks for Critical/Warning items that are not InProgress and reminds the user via a sub-agent sending a session message. args: { apiBaseUrl: string (Open Work API base URL), creatorSessionId?: string (session to message with the reminder), dryRun?: boolean (skip sending the real reminder message, just log it) }.",
+  "phases": [
+    { "title": "Extract", "detail": "Sub-agent scans other in-flight Copilot sessions for genuinely pending work" },
+    { "title": "Sync", "detail": "Upsert extracted items into Open Work as WorkItems" },
+    { "title": "Check", "detail": "Query Open Work for Critical/Warning items that are not already InProgress" },
+    { "title": "Remind", "detail": "Sub-agent delivers an ADHD-friendly reminder for any such items found" }
+  ],
+  "argsSchema": {
+    "type": "object",
+    "required": ["apiBaseUrl"],
+    "properties": {
+      "apiBaseUrl": { "type": "string" },
+      "creatorSessionId": { "type": "string" },
+      "dryRun": { "type": "boolean" }
+    }
+  }
+}
+```
+
+### run
+
+```js
+async ({ args, log, phase, agent, step, signal }) => {
+  const apiBaseUrl = String(args.apiBaseUrl || "").replace(/\/$/, "");
+  const creatorSessionId = args.creatorSessionId || null;
+  const dryRun = !!args.dryRun;
+
+  phase("Extract");
+  const extraction = await agent(
+    "You are helping the Daily Driver ADHD-support agent find genuinely pending, actionable work the user has in flight across GitHub Copilot sessions OTHER than this workflow run (also ignore any session that is itself a 'Daily Driver hourly sweep' run). " +
+    "Use list_sessions_and_chats and get_sessions_status to see live session state (busy/idle, pending plan approvals, awaiting_input questions). " +
+    "Use session_store_sql to look for sessions with open/unresolved todos, an unresolved pending_plan, or awaiting_input, as evidence of genuinely open work - not sessions that look finished or idle with no loose ends. " +
+    "Do not include work that is already clearly completed, merged, or closed. Be conservative: only include an item if you have real evidence it is still open. " +
+    "Return at most ONE item per session - the single most important open thing in that session - and set sessionId to that session's id exactly as returned by list_sessions_and_chats (it is used to de-duplicate across hourly runs). " +
+    "For each item, decide: " +
+    "- severity: 'Critical' if it is blocking, urgent, or the session is stuck awaiting the user's input/decision; 'Warning' if it should happen soon but is not urgent; 'Normal' otherwise. " +
+    "- status: 'InProgress' if the session shows active work currently happening on it; 'Blocked' if it is stuck awaiting something (e.g. awaiting_input); otherwise 'Backlog'. " +
+    "Return at most 10 of the most important items as JSON: { \"items\": [ { \"sessionId\": string, \"title\": string, \"body\": string, \"severity\": \"Critical\"|\"Warning\"|\"Normal\", \"status\": \"Backlog\"|\"InProgress\"|\"Blocked\" } ] }. " +
+    "title should be short and concrete (e.g. reference the session name/PR/issue). body is one or two sentences of context, written plainly with no judgment language.",
+    {
+      label: "extract-pending-work",
+      schema: {
+        type: "object",
+        required: ["items"],
+        properties: {
+          items: {
+            type: "array",
+            items: {
+              type: "object",
+              required: ["sessionId", "title", "severity", "status"],
+              properties: {
+                sessionId: { type: "string" },
+                title: { type: "string" },
+                body: { type: "string" },
+                severity: { type: "string", enum: ["Critical", "Warning", "Normal"] },
+                status: { type: "string", enum: ["Backlog", "InProgress", "Blocked"] }
+              }
+            }
+          }
+        }
+      }
+    }
+  );
+  const items = (extraction && Array.isArray(extraction.items))
+    ? extraction.items.filter((i) => i && i.sessionId && i.title).slice(0, 10)
+    : [];
+  log(`Extracted ${items.length} candidate item(s) from in-flight sessions.`);
+
+  phase("Sync");
+  const severityToCategory = { Critical: "Critical", Warning: "Warning", Normal: "Acceptable" };
+  const severityToPriority = { Critical: 10, Warning: 5, Normal: 1 };
+  const synced = await step("sync-items-v2", async () => {
+    const results = [];
+    for (const item of items) {
+      // externalKey makes the POST idempotent: the API returns the existing item (200)
+      // instead of creating a duplicate when this session was already synced.
+      const body = {
+        title: item.title,
+        body: item.body || "",
+        priority: severityToPriority[item.severity] || 1,
+        status: item.status || "Backlog",
+        manualCategory: severityToCategory[item.severity] || "Acceptable",
+        externalKey: `copilot-session:${item.sessionId}`,
+      };
+      if (item.severity && item.severity !== "Normal") {
+        body.requiresActionAt = new Date().toISOString();
+      }
+      try {
+        const res = await fetch(`${apiBaseUrl}/api/workitems`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal,
+        });
+        results.push({ title: item.title, ok: res.ok, created: res.status === 201, httpStatus: res.status });
+      } catch (err) {
+        results.push({ title: item.title, ok: false, created: false, error: String(err && err.message || err) });
+      }
+    }
+    return results;
+  });
+  const createdCount = synced.filter((r) => r.created).length;
+  const existingCount = synced.filter((r) => r.ok && !r.created).length;
+  log(`Synced ${synced.filter((r) => r.ok).length}/${synced.length} item(s): ${createdCount} new, ${existingCount} already tracked.`);
+
+  phase("Check");
+  const pending = await step("check-pending-v1", async () => {
+    const url = `${apiBaseUrl}/api/workitems?category=Critical&category=Warning&status=Backlog&status=Blocked`;
+    try {
+      const res = await fetch(url, { signal });
+      if (!res.ok) return [];
+      return await res.json();
+    } catch {
+      return [];
+    }
+  }, { volatile: true });
+
+  phase("Remind");
+  let remindedCount = 0;
+  if (Array.isArray(pending) && pending.length > 0) {
+    remindedCount = pending.length;
+    const summaryLines = pending.map((p) => `- [${p.category}] ${p.title}`).join("\n");
+    log(`Pending Critical/Warning item(s) not in progress:\n${summaryLines}`);
+    if (!dryRun && creatorSessionId) {
+      await agent(
+        "You are the Daily Driver ADHD-support agent. Send ONE short, calm, non-judgmental reminder message using send_session_message to session id '" +
+        creatorSessionId + "'. " +
+        "The message must: list these pending items (title + one line of context each), explicitly note they are not already in progress, and end with exactly one small concrete suggested next action (pick the single highest-priority item). " +
+        "No shame/judgment language. Keep it short. Items:\n" + summaryLines,
+        { label: "deliver-reminder" }
+      );
+    } else {
+      log(dryRun ? "dryRun set - skipping real reminder message." : "No creatorSessionId provided - skipping real reminder message.");
+    }
+  } else {
+    log("No Critical/Warning items pending outside of in-progress work. Nothing to remind.");
+  }
+
+  return {
+    synced,
+    remindedCount,
+    items: Array.isArray(pending) ? pending.map((p) => p.title) : [],
+  };
+}
+```

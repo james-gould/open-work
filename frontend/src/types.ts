@@ -1,15 +1,19 @@
 export type WorkItemCategory = "Critical" | "Warning" | "Acceptable";
 
+export type WorkItemStatus = "Backlog" | "InProgress" | "Blocked" | "Done";
+
 export interface WorkItem {
   id: string;
   title: string;
   body: string | null;
   reference: string | null;
+  externalKey: string | null;
   priority: number;
   requiresActionAt: string | null;
   completionDueAt: string | null;
   category: WorkItemCategory;
   isManualCategory: boolean;
+  status: WorkItemStatus;
   isDone: boolean;
   createdAt: string;
   updatedAt: string;
@@ -22,6 +26,9 @@ export interface CreateWorkItemRequest {
   priority: number;
   requiresActionAt?: string | null;
   completionDueAt?: string | null;
+  status?: WorkItemStatus;
+  manualCategory?: WorkItemCategory | null;
+  externalKey?: string | null;
 }
 
 export interface UpdateWorkItemRequest {
@@ -37,5 +44,6 @@ export interface UpdateWorkItemRequest {
   completionDueAt?: string | null;
   manualCategorySet?: boolean;
   manualCategory?: WorkItemCategory | null;
+  status?: WorkItemStatus;
   isDone?: boolean;
 }

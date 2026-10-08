@@ -14,7 +14,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 const string DevCorsPolicy = "DevCors";
 
 var connectionString = builder.Configuration.GetConnectionString("Default")
-    ?? throw new InvalidOperationException("ConnectionStrings:Default is required (Azure SQL Database connection string).");
+    ?? throw new InvalidOperationException("ConnectionStrings:Default is required (PostgreSQL connection string).");
 
 builder.Services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
 builder.Services.AddScoped<VapidKeyProvider>();
@@ -32,7 +32,7 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Apply any pending EF Core migrations against the Azure SQL Database on startup.
+// Apply any pending EF Core migrations against the PostgreSQL database on startup.
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();

@@ -82,6 +82,7 @@ body {
 }
 
 .add-item-form input[type="text"],
+.add-item-form input[type="url"],
 .add-item-form textarea {
   width: 100%;
   padding: 0.5rem;
@@ -190,6 +191,27 @@ body {
 .work-item-priority {
   font-size: 0.7rem;
   color: var(--muted-text);
+}
+
+.work-item-status {
+  font-size: 0.7rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted-text);
+  white-space: nowrap;
+}
+
+.work-item-controls input[type="text"],
+.work-item-controls input[type="url"],
+.work-item-controls textarea {
+  min-width: 16rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  color: var(--text);
+  resize: vertical;
 }
 
 .work-item-details {

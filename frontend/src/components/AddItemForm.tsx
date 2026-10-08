@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { PRIORITY_OPTIONS, dateInputToIso } from "../priority";
 import type { CreateWorkItemRequest } from "../types";
 import { QuickDateButtons } from "./QuickDateButtons";
 
@@ -6,14 +7,7 @@ interface Props {
   onAdd: (item: CreateWorkItemRequest) => Promise<void>;
 }
 
-/** Priority dropdown options: word shown to the user, number sent to the API. */
-const PRIORITY_OPTIONS = [
-  { label: "Critical", value: 1 },
-  { label: "Warning", value: 2 },
-  { label: "Acceptable", value: 3 }
-] as const;
-
-const DEFAULT_PRIORITY = PRIORITY_OPTIONS[0].value;
+const DEFAULT_PRIORITY: number = PRIORITY_OPTIONS[0].value;
 
 /** Deliberately minimal: title + body + priority + completion date, so capturing a
  * stray thought takes a few seconds, not a few minutes. */
@@ -36,7 +30,7 @@ export function AddItemForm({ onAdd }: Props) {
         body: body.trim() || null,
         reference: reference.trim() || null,
         priority,
-        completionDueAt: completionDate ? new Date(completionDate).toISOString() : null
+        completionDueAt: dateInputToIso(completionDate)
       });
       setTitle("");
       setBody("");

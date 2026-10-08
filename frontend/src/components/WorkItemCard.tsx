@@ -1,5 +1,13 @@
 import { useState } from "react";
-import type { UpdateWorkItemRequest, WorkItem, WorkItemCategory } from "../types";
+import {
+  PRIORITY_OPTIONS,
+  dateInputToIso,
+  isoToDateInput,
+  priorityLabel,
+  priorityOptionValue
+} from "../priority";
+import type { UpdateWorkItemRequest, WorkItem, WorkItemCategory, WorkItemStatus } from "../types";
+import { QuickDateButtons } from "./QuickDateButtons";
 
 interface Props {
   item: WorkItem;
@@ -9,6 +17,13 @@ interface Props {
 }
 
 const CATEGORIES: WorkItemCategory[] = ["Critical", "Warning", "Acceptable"];
+
+// Done is reached via the Done button so it goes through the complete endpoint.
+const STATUSES: { value: WorkItemStatus; label: string }[] = [
+  { value: "Backlog", label: "Not started" },
+  { value: "InProgress", label: "In progress" },
+  { value: "Blocked", label: "Blocked" }
+];
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
@@ -22,14 +37,20 @@ function formatDate(iso: string | null): string {
 
 export function WorkItemCard({ item, onUpdate, onComplete, onDelete }: Props) {
   const [expanded, setExpanded] = useState(false);
+  const statusLabel = STATUSES.find((s) => s.value === item.status)?.label;
+  // Remount uncontrolled text inputs whenever the server copy changes.
+  const editKey = item.updatedAt;
 
   return (
     <li className={`work-item category-${item.category.toLowerCase()}`}>
       <div className="work-item-header" onClick={() => setExpanded((v) => !v)}>
         <span className="work-item-dot" aria-hidden="true" />
         <span className="work-item-title">{item.title}</span>
+        {item.status !== "Backlog" && (
+          <span className={`work-item-status status-${item.status.toLowerCase()}`}>{statusLabel}</span>
+        )}
         <span className="work-item-priority" title="Priority">
-          P{item.priority}
+          {priorityLabel(item.priority)}
         </span>
       </div>
 
@@ -53,19 +74,97 @@ export function WorkItemCard({ item, onUpdate, onComplete, onDelete }: Props) {
 
           <div className="work-item-controls">
             <label>
+              Title
+              <input
+                key={`title-${editKey}`}
+                type="text"
+                defaultValue={item.title}
+                onBlur={(e) => {
+                  const value = e.target.value.trim();
+                  if (!value) {
+                    e.target.value = item.title;
+                  } else if (value !== item.title) {
+                    void onUpdate(item.id, { title: value });
+                  }
+                }}
+              />
+            </label>
+
+            <label>
+              Details
+              <textarea
+                key={`body-${editKey}`}
+                rows={2}
+                defaultValue={item.body ?? ""}
+                onBlur={(e) => {
+                  const value = e.target.value.trim() || null;
+                  if (value !== item.body) void onUpdate(item.id, { bodySet: true, body: value });
+                }}
+              />
+            </label>
+
+            <label>
               Reference link
               <input
+                key={`reference-${editKey}`}
                 type="url"
                 placeholder="https://…"
                 defaultValue={item.reference ?? ""}
-                onBlur={(e) =>
+                onBlur={(e) => {
+                  const value = e.target.value.trim() || null;
+                  if (value !== item.reference) {
+                    void onUpdate(item.id, { referenceSet: true, reference: value });
+                  }
+                }}
+              />
+            </label>
+
+            <label>
+              Status
+              <select
+                value={item.status}
+                onChange={(e) => void onUpdate(item.id, { status: e.target.value as WorkItemStatus })}
+              >
+                {STATUSES.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              Priority
+              <select
+                value={priorityOptionValue(item.priority)}
+                onChange={(e) => void onUpdate(item.id, { priority: Number(e.target.value) })}
+              >
+                {PRIORITY_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              Due
+              <input
+                type="date"
+                value={isoToDateInput(item.completionDueAt)}
+                onChange={(e) =>
                   void onUpdate(item.id, {
-                    referenceSet: true,
-                    reference: e.target.value.trim() || null
+                    completionDueAtSet: true,
+                    completionDueAt: dateInputToIso(e.target.value)
                   })
                 }
               />
             </label>
+            <QuickDateButtons
+              onSelect={(date) =>
+                void onUpdate(item.id, { completionDueAtSet: true, completionDueAt: dateInputToIso(date) })
+              }
+            />
 
             <label>
               Category override

@@ -13,7 +13,7 @@ public class VapidKeyProvider(AppDbContext db)
 {
     public async Task<VapidKeySet> GetOrCreateAsync(CancellationToken ct = default)
     {
-        var existing = await db.VapidKeys.FirstOrDefaultAsync(ct);
+        var existing = await db.VapidKeys.OrderBy(k => k.Id).FirstOrDefaultAsync(ct);
         if (existing is not null)
         {
             return existing;

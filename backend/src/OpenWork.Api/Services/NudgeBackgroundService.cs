@@ -8,7 +8,7 @@ namespace OpenWork.Api.Services;
 
 /// <summary>
 /// Background loop that is the "remote nudge" mechanism: it periodically re-evaluates
-/// every open item and, for anything that is (still) Critical, pushes a browser
+/// every open item that isn't already InProgress and, for anything that is (still) Critical, pushes a browser
 /// notification to every registered device so a stalled item is surfaced even if the
 /// app isn't open in a tab. Repeats are debounced via <see cref="Prioritization.NudgeCooldown"/>.
 /// </summary>
@@ -66,7 +66,10 @@ public class NudgeBackgroundService(
         }
 
         var now = DateTimeOffset.UtcNow;
-        var items = await db.WorkItems.Where(w => !w.IsDone).ToListAsync(ct);
+        // InProgress items are already being worked, so they're "progressing" and don't need a nudge.
+        var items = await db.WorkItems
+            .Where(w => w.Status != WorkItemStatus.Done && w.Status != WorkItemStatus.InProgress)
+            .ToListAsync(ct);
 
         var dueForNudge = items
             .Where(w => Prioritization.Resolve(w, now) == WorkItemCategory.Critical)

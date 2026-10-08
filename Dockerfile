@@ -22,11 +22,9 @@ WORKDIR /app
 COPY --from=backend-build /app/publish ./
 COPY --from=frontend-build /src/frontend/dist ./wwwroot
 
-RUN mkdir -p /data
-VOLUME ["/data"]
-
+# All state (work items, push subscriptions, VAPID keys) lives in PostgreSQL;
+# supply ConnectionStrings__Default at runtime.
 ENV ASPNETCORE_URLS=http://+:8080
-ENV ConnectionStrings__Default="Data Source=/data/openwork.db"
 EXPOSE 8080
 
 ENTRYPOINT ["dotnet", "OpenWork.Api.dll"]

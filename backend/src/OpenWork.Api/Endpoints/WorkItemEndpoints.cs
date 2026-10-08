@@ -80,26 +80,35 @@ public static class WorkItemEndpoints
         return sorted.Select(w => Prioritization.ToResponse(w, now)).ToList();
     }
 
-    private static async Task<Results<Created<WorkItemResponse>, ValidationProblem>> Create(
+    private static async Task<Results<Created<WorkItemResponse>, Ok<WorkItemResponse>, ValidationProblem>> Create(
         AppDbContext db, CreateWorkItemRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Title))
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["title"] = ["Title is required."]
-            });
+            return TitleRequired();
         }
 
         var now = DateTimeOffset.UtcNow;
+        var externalKey = string.IsNullOrWhiteSpace(request.ExternalKey) ? null : request.ExternalKey.Trim();
+        if (externalKey is not null)
+        {
+            var existing = await db.WorkItems.FirstOrDefaultAsync(w => w.ExternalKey == externalKey);
+            if (existing is not null)
+            {
+                return TypedResults.Ok(Prioritization.ToResponse(existing, now));
+            }
+        }
+
         var item = new WorkItem
         {
             Title = request.Title.Trim(),
             Body = request.Body,
             Reference = string.IsNullOrWhiteSpace(request.Reference) ? null : request.Reference.Trim(),
+            ExternalKey = externalKey,
             Priority = request.Priority,
-            RequiresActionAt = request.RequiresActionAt,
-            CompletionDueAt = request.CompletionDueAt,
+            RequiresActionAt = request.RequiresActionAt?.ToUniversalTime(),
+            CompletionDueAt = request.CompletionDueAt?.ToUniversalTime(),
+            ManualCategory = request.ManualCategory,
             Status = request.Status,
             CreatedAt = now,
             UpdatedAt = now
@@ -111,9 +120,20 @@ public static class WorkItemEndpoints
         return TypedResults.Created($"/api/workitems/{item.Id}", Prioritization.ToResponse(item, now));
     }
 
-    private static async Task<Results<Ok<WorkItemResponse>, NotFound>> Update(
+    private static ValidationProblem TitleRequired() =>
+        TypedResults.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["title"] = ["Title is required."]
+        });
+
+    private static async Task<Results<Ok<WorkItemResponse>, NotFound, ValidationProblem>> Update(
         AppDbContext db, Guid id, UpdateWorkItemRequest request)
     {
+        if (request.Title is not null && string.IsNullOrWhiteSpace(request.Title))
+        {
+            return TitleRequired();
+        }
+
         var item = await db.WorkItems.FindAsync(id);
         if (item is null)
         {
@@ -142,12 +162,12 @@ public static class WorkItemEndpoints
 
         if (request.RequiresActionAtSet)
         {
-            item.RequiresActionAt = request.RequiresActionAt;
+            item.RequiresActionAt = request.RequiresActionAt?.ToUniversalTime();
         }
 
         if (request.CompletionDueAtSet)
         {
-            item.CompletionDueAt = request.CompletionDueAt;
+            item.CompletionDueAt = request.CompletionDueAt?.ToUniversalTime();
         }
 
         if (request.ManualCategorySet)

@@ -1,12 +1,31 @@
+# Local, self-contained run: app + PostgreSQL. Credentials here are for local use only.
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: openwork
+      POSTGRES_USER: openwork
+      POSTGRES_PASSWORD: openwork-local
+    volumes:
+      - open-work-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openwork -d openwork"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   open-work:
     build: .
     image: open-work:local
     ports:
       - "8080:8080"
-    volumes:
-      - open-work-data:/data
+    environment:
+      ConnectionStrings__Default: "Host=db;Port=5432;Database=openwork;Username=openwork;Password=openwork-local"
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
-  open-work-data:
+  open-work-db:

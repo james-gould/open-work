@@ -44,9 +44,10 @@ public static class Prioritization
 
     /// <summary>
     /// Orders items for display: category group first (Critical, then Warning, then
-    /// Acceptable), then by "requires action" date descending (oldest/most-overdue state
-    /// changes first), then by looming completion date ascending, then by the user's
-    /// manual priority number descending.
+    /// Acceptable), then by "requires action" date descending (most recent "it's your turn"
+    /// state change first, per INTENT.md; items with no action date sink to the bottom of
+    /// their group), then by looming completion date ascending, then by the user's manual
+    /// priority number descending (higher = more important).
     /// </summary>
     public static IEnumerable<WorkItem> Sort(IEnumerable<WorkItem> items, DateTimeOffset now)
     {
@@ -64,6 +65,7 @@ public static class Prioritization
         item.Title,
         item.Body,
         item.Reference,
+        item.ExternalKey,
         item.Priority,
         item.RequiresActionAt,
         item.CompletionDueAt,

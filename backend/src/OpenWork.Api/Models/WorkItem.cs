@@ -19,6 +19,13 @@ public class WorkItem
     /// </summary>
     public string? Reference { get; set; }
 
+    /// <summary>
+    /// Optional stable identifier from an external source (e.g. <c>copilot-session:&lt;id&gt;</c>
+    /// from the Daily Driver sweep). Unique when set, so automated syncs can create items
+    /// idempotently instead of duplicating them on every run.
+    /// </summary>
+    public string? ExternalKey { get; set; }
+
     /// <summary>User-assigned priority number. Higher = more important. Used as the final tie-breaker.</summary>
     public int Priority { get; set; }
 

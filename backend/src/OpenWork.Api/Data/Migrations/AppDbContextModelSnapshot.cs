@@ -87,6 +87,9 @@ namespace OpenWork.Api.Data.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("ExternalKey")
+                        .HasColumnType("text");
+
                     b.Property<DateTimeOffset?>("LastNudgedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -113,6 +116,9 @@ namespace OpenWork.Api.Data.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ExternalKey")
+                        .IsUnique();
 
                     b.HasIndex("Status");
 

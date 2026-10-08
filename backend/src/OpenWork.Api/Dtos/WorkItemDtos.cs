@@ -8,6 +8,7 @@ public record WorkItemResponse(
     string Title,
     string? Body,
     string? Reference,
+    string? ExternalKey,
     int Priority,
     DateTimeOffset? RequiresActionAt,
     DateTimeOffset? CompletionDueAt,
@@ -19,6 +20,11 @@ public record WorkItemResponse(
     DateTimeOffset UpdatedAt
 );
 
+/// <summary>
+/// Creates an item. When <see cref="ExternalKey"/> is supplied and an item with that key
+/// already exists (in any status), the existing item is returned unchanged with 200 OK
+/// instead of creating a duplicate.
+/// </summary>
 public record CreateWorkItemRequest(
     string Title,
     string? Body,
@@ -26,7 +32,9 @@ public record CreateWorkItemRequest(
     DateTimeOffset? RequiresActionAt,
     DateTimeOffset? CompletionDueAt,
     WorkItemStatus Status = WorkItemStatus.Backlog,
-    string? Reference = null
+    string? Reference = null,
+    WorkItemCategory? ManualCategory = null,
+    string? ExternalKey = null
 );
 
 /// <summary>

@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { localDatePlusDays } from "../priority";
 
 interface Props {
   onSelect: (isoDate: string) => void;
@@ -20,11 +21,7 @@ export function QuickDateButtons({ onSelect, style }: Props) {
           key={opt.days}
           type="button"
           className="quick-date-btn"
-          onClick={() => {
-            const d = new Date();
-            d.setDate(d.getDate() + opt.days);
-            onSelect(d.toISOString().slice(0, 10));
-          }}
+          onClick={() => onSelect(localDatePlusDays(opt.days))}
         >
           {opt.label}
         </button>
