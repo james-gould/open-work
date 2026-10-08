@@ -15,34 +15,48 @@ step, this doc - is done and ready to run the moment that's unblocked.
   already has ~17 unrelated resource groups (`McapsGovernance`, `rg-ahm-*`,
   `jgould-dev-testing`, etc.) - do not reuse or touch these.
 
-## ⚠️ Blocking issue: no write access on the subscription
+## ⚠️ Blocking issue: no write access, even inside the manually-created RG
 
-The signed-in identity available to this agent (`jamesgould@microsoft.com`,
-object id `3b305683-2eab-47e5-ba11-d5f26d653e94`) can **list** subscriptions
-and resource groups, but a direct resource-group create call returns a
-definitive, non-retryable authorization failure:
+`rg-open-work` now **exists** (user created it manually, `uksouth`, empty -
+confirmed via `group_list`). However, deploying into it still fails:
 
 ```
 AuthorizationFailed: The client 'jamesgould@microsoft.com' ... does not have
-authorization to perform action 'Microsoft.Resources/subscriptions/resourcegroups/write'
-over scope '/subscriptions/2b4c73d5-769b-4b2f-9f5f-420c55fdee99/resourcegroups/rg-open-work'
+authorization to perform action 'Microsoft.Resources/deployments/whatIf/action'
+over scope '/subscriptions/2b4c73d5-769b-4b2f-9f5f-420c55fdee99/resourcegroups/rg-open-work/...'
 ```
 
-This is almost certainly **Reader-only** access on this MCAPS subscription
-(a `role_assignment_list` call for the same identity also failed with
-`AuthorizationFailed` on `Microsoft.Resources/subscriptions/read`, consistent
-with a narrow/custom role rather than Contributor+). No tool available to
-this agent can grant itself additional RBAC - that has to come from whoever
-administers this subscription (typically done via Entra/PIM or the Access
-Control (IAM) blade in the portal).
+Root cause, confirmed directly:
 
-**To unblock, grant `jamesgould@microsoft.com` `Contributor` on either:**
-- the subscription `2b4c73d5-769b-4b2f-9f5f-420c55fdee99` (simplest), or
-- scoped to just `rg-open-work` after creating that empty resource group
-  manually first (tighter blast radius, if preferred).
+- `role_assignment_list` scoped to `rg-open-work` returns **zero
+  assignments** - nobody (including the creator) has any role on it yet.
+  Creating a resource group does **not** automatically grant the creator a
+  role on it in this subscription's configuration.
+- `role_assignment_list` scoped to the whole subscription also contains
+  **no assignment at all** for `jamesgould@microsoft.com`
+  (`3b305683-2eab-47e5-ba11-d5f26d653e94`). The Reader-level access that
+  *does* work (listing subscriptions, resource groups, role assignments)
+  is inherited from a management-group level grant above the subscription
+  (MCAPS tenants commonly apply a broad Reader policy at that level), which
+  explains why reads succeed while every write/deploy action fails.
 
-Once either is done, deployment is a single command (see below) - no further
-investigation needed.
+**To unblock, grant `jamesgould@microsoft.com` the `Contributor` role,
+scoped to `rg-open-work`** (tightest blast radius, and sufficient - no ACR,
+no custom role assignments needed by the template itself):
+
+- Portal: `rg-open-work` → **Access control (IAM)** → **Add role
+  assignment** → Role: `Contributor` → Member: `jamesgould@microsoft.com` →
+  Review + assign.
+- Or CLI, run by anyone who already has `Owner`/`User Access Administrator`
+  on the subscription or this RG:
+  ```powershell
+  az role assignment create --assignee jamesgould@microsoft.com `
+    --role Contributor `
+    --scope /subscriptions/2b4c73d5-769b-4b2f-9f5f-420c55fdee99/resourceGroups/rg-open-work
+  ```
+
+Once that's in place, re-run `az deployment group create` (step 2 below) -
+no further investigation needed.
 
 ## Done so far
 
@@ -114,12 +128,9 @@ investigation needed.
 
 ## Exact steps to finish, once Contributor access is granted
 
-1. Create the resource group (if not already created as part of granting
-   scoped access):
-   ```powershell
-   az login   # or reuse whatever credential now has Contributor
-   az group create -n rg-open-work -l uksouth --subscription 2b4c73d5-769b-4b2f-9f5f-420c55fdee99
-   ```
+1. `rg-open-work` already exists (`uksouth`) - nothing to create. Just make
+   sure whoever/whatever runs the next step has the `Contributor` grant
+   above in effect (role assignments can take a minute or two to propagate).
 2. Deploy the infra:
    ```powershell
    az deployment group create -g rg-open-work `
