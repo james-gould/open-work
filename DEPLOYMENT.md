@@ -1,14 +1,15 @@
 # Deployment status & next steps
 
-**The app is deployed and live** in Azure Container Apps.
+**The app is deployed and live** in Azure Container Apps, backed by a
+persistent Azure Database for PostgreSQL Flexible Server.
 
 ```
 https://openwork-app.delightfulpebble-ad1c96d3.uksouth.azurecontainerapps.io
 ```
 
 `/healthz` returns `{"status":"ok"}`. CI auto-deploys on every push to `main`
-via GitHub OIDC (no stored secrets). One known limitation remains: **data is
-not yet persistent across restarts** (see below) - that's the next real task.
+via GitHub OIDC (no stored secrets). **Data now survives restarts/redeploys**
+- the long-standing ephemeral-SQLite gap is closed (see section 4 below).
 
 ## Target environment
 
@@ -87,10 +88,10 @@ which needs no secret at all:
   provider works fine via ARM directly. **CI now deploys green end-to-end
   on every push to `main`** - confirmed working.
 
-### 4. Azure Files volume mount: policy blocks it entirely (⚠️ open follow-up)
+### 4. Persistence: Azure Files → Azure SQL → PostgreSQL Flexible Server (✅ resolved)
 
 The original Bicep mounted a `/data` Azure Files share into the container so
-SQLite + generated VAPID keys would survive restarts. This **cannot work in
+SQLite + generated VAPID keys would survive restarts. This **didn't work in
 this tenant**: the storage account's `allowSharedKeyAccess` and
 `publicNetworkAccess` are both forced by policy (`allowSharedKeyAccess:
 false`, `publicNetworkAccess: Disabled` - confirmed by attempting
@@ -101,39 +102,79 @@ SMB auth (no managed-identity/Entra option), and the storage account has no
 reachable public endpoint for SMB either way. Mount attempts failed with
 `mount error(13): Permission denied`.
 
-**Temporary fix applied**: removed the volume mount; the container now uses
-its own ephemeral filesystem for `/data/openwork.db` (`infra/main.bicep` and
-the live Container App were both updated to match). **This means all data
-(work items, VAPID keys) is lost on every restart/redeploy/scale event.**
-The storage account + file share are still deployed but unused - safe to
-leave for now, cheap, or remove in a future cleanup.
+**Second attempt, Azure SQL Database**: also didn't work - this subscription's
+offer type rejects new `Microsoft.Sql/servers` logical server creation in
+**every region tried** (`uksouth`, `ukwest`, `westeurope`, `eastus`,
+`eastus2`) with `RegionDoesNotAllowProvisioning`. Not a regional capacity
+issue or an Azure Policy assignment (checked - none relevant exist); this
+looks like a hard platform/offer-type restriction on this MCAPS-internal
+subscription. **Azure SQL Database is not viable here - don't retry it.**
 
-**Real fix, not yet done**: move persistence off SQLite+Files entirely onto
-something Container Apps can reach over the network without a file mount -
-Azure Database for PostgreSQL Flexible Server (or Azure SQL Basic), using
-the Container App's system-assigned managed identity for Entra-only auth
-(no secrets, compatible with this tenant's shared-key-disabled policy).
-Needs: new Bicep resource, EF Core provider swap (`Npgsql.EntityFrameworkCore.PostgreSQL`
-or `Microsoft.EntityFrameworkCore.SqlServer`), connection string via managed
-identity, and regenerating the EF migration the "Daily Driver" work just
-added. Scoped as a separate follow-up, not done in this pass.
+**What actually worked: Azure Database for PostgreSQL Flexible Server.**
+`Microsoft.DBforPostgreSQL` hit no such restriction - the only blocker was a
+routine, one-time `MissingSubscriptionRegistration`, fixed with:
+
+```powershell
+az provider register --namespace Microsoft.DBforPostgreSQL --wait
+```
+
+`infra/main.bicep` now provisions:
+
+- A `Microsoft.DBforPostgreSQL/flexibleServers` instance (Burstable B1ms, 1
+  vCore / 2GiB RAM, 32GB storage, Postgres 16) - well within the ~$30/mo
+  ceiling (~$15-20/mo).
+- A firewall rule (`AllowAllAzureServicesAndResourcesWithinAzureIps`,
+  `0.0.0.0`-`0.0.0.0`) - the documented convention for letting Azure-hosted
+  compute (Container Apps has no static egress IP without VNet integration)
+  reach a public Postgres endpoint.
+- A database (`openworkdb`).
+
+**Auth is password-based, not passwordless/managed-identity.** Npgsql has no
+built-in connection-string keyword for Entra Managed Identity auth the way
+`Microsoft.Data.SqlClient` does (`Authentication=Active Directory Managed
+Identity`) - true passwordless Postgres auth would mean manually acquiring
+and refreshing an Entra token via `Azure.Identity` and supplying it as the
+password at runtime. For a personal single-user app, that complexity wasn't
+worth it; instead the full connection string (including the admin password)
+is stored **only** as a Container App secret (`db-connection-string`,
+referenced via `secretRef`) - never as a plain env var or in source control.
+Revisit this only if there's a strong future reason to.
+
+Backend changes: EF Core provider switched to
+`Npgsql.EntityFrameworkCore.PostgreSQL` (10.0.3, the correct version for
+EF Core 10 / .NET 10), `Program.cs` now requires `ConnectionStrings:Default`
+and calls `options.UseNpgsql(connectionString)`, and the EF migration was
+regenerated targeting Postgres types (`uuid`, `text`, `timestamp with time
+zone`, etc.) via `dotnet ef migrations add InitialCreate --output-dir
+Data/Migrations`. `Database.Migrate()` still runs on container startup, now
+against the real Postgres instance - confirmed working end-to-end (create
+item → force container restart → item still present).
+
+**⚠️ One sharp edge hit and fixed during this migration**: CI's image-update
+step used `az rest --method patch` with a **minimal** body
+(`containers: [{ name, image }]`). ARM's PATCH merges top-level object
+properties but **replaces arrays wholesale** - this silently wiped the
+container's `env` list (including the `ConnectionStrings__Default` →
+Postgres-secret wiring) on every CI deploy, so the app fell back to the
+Dockerfile's baked-in SQLite-style connection string, which Npgsql can't
+parse, crash-looping the revision. Fixed by having the workflow `GET` the
+current `containers` array first and patch only the `image` field within it
+before sending the PATCH - see `.github/workflows/build-and-publish.yml`.
 
 ## Current infra state (`rg-open-work`, `uksouth`)
 
 | Resource | Status |
 |---|---|
 | `openwork-logs` (Log Analytics) | ✅ healthy |
-| `openworksttt7a3fgnr2bss` (Storage + Files share) | ✅ healthy, currently unused (see above) |
+| `openworksttt7a3fgnr2bss` (Storage + Files share) | ✅ healthy, unused leftover from the Azure Files attempt - safe to delete |
+| `openwork-pg-<suffix>` (PostgreSQL Flexible Server) | ✅ healthy, holds all persistent app data |
 | `openwork-env` (Container Apps environment) | ✅ healthy |
-| `openwork-app` (Container App) | ✅ healthy, running, `/healthz` returns 200 |
+| `openwork-app` (Container App) | ✅ healthy, running, `/healthz` returns 200, persists across restarts |
 
 ## Still to do
 
-- [ ] Replace ephemeral SQLite with a networked DB (Postgres/SQL Flexible
-      Server + managed identity) so data survives restarts - see "real fix"
-      above. This is the main remaining gap.
-- [ ] Once that's done, remove the now-unused storage account + file share
-      from `infra/main.bicep` (or repurpose for something else).
+- [ ] Delete the now-fully-unused storage account (`openworksttt7a3fgnr2bss`)
+      left over from the Azure Files attempt.
 - [ ] Review/merge the "Daily Driver" feature branch
       (`james-gould-daily-driver-agent`) - see `DAILY_DRIVER.md`.
 - [ ] Decide whether to make the GHCR package public anyway (simpler long

@@ -96,10 +96,23 @@ jobs:
       # indefinitely in this tenant, even though the provider works fine via
       # ARM directly (confirmed: az rest reads/writes to existing
       # Microsoft.App resources succeed regardless of that status).
+      #
+      # IMPORTANT: ARM PATCH replaces nested arrays wholesale rather than
+      # merging element-by-element. An earlier version of this step sent a
+      # minimal `containers: [{ name, image }]` body, which silently wiped
+      # the container's `env` list (dropping ConnectionStrings__Default,
+      # pointed at the Postgres secret) - the app then fell back to the
+      # Dockerfile's baked-in SQLite connection string, which Npgsql can't
+      # parse, crash-looping the revision. To avoid this, fetch the current
+      # containers array first and only swap the image field within it.
       - name: Update Container App image
         uses: azure/CLI@v2
         with:
           inlineScript: |
-            az rest --method patch \
-              --url "https://management.azure.com/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ vars.AZURE_RESOURCE_GROUP }}/providers/Microsoft.App/containerApps/${{ vars.AZURE_CONTAINER_APP_NAME }}?api-version=2024-03-01" \
-              --body "{\"properties\":{\"template\":{\"containers\":[{\"name\":\"open-work\",\"image\":\"ghcr.io/${{ github.repository }}:${{ github.sha }}\"}]}}}"
+            set -euo pipefail
+            URL="https://management.azure.com/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ vars.AZURE_RESOURCE_GROUP }}/providers/Microsoft.App/containerApps/${{ vars.AZURE_CONTAINER_APP_NAME }}?api-version=2024-03-01"
+            CONTAINERS=$(az rest --method get --url "$URL" --query "properties.template.containers" -o json)
+            NEW_IMAGE="ghcr.io/${{ github.repository }}:${{ github.sha }}"
+            UPDATED_CONTAINERS=$(echo "$CONTAINERS" | jq --arg img "$NEW_IMAGE" '[.[0] * {image: $img}]')
+            BODY=$(jq -n --argjson containers "$UPDATED_CONTAINERS" '{properties:{template:{containers:$containers}}}')
+            az rest --method patch --url "$URL" --body "$BODY"
