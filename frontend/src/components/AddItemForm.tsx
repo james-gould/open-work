@@ -6,12 +6,21 @@ interface Props {
   onAdd: (item: CreateWorkItemRequest) => Promise<void>;
 }
 
+/** Priority dropdown options: word shown to the user, number sent to the API. */
+const PRIORITY_OPTIONS = [
+  { label: "Critical", value: 1 },
+  { label: "Warning", value: 2 },
+  { label: "Acceptable", value: 3 }
+] as const;
+
+const DEFAULT_PRIORITY = PRIORITY_OPTIONS[0].value;
+
 /** Deliberately minimal: title + body + priority + completion date, so capturing a
  * stray thought takes a few seconds, not a few minutes. */
 export function AddItemForm({ onAdd }: Props) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [priority, setPriority] = useState(0);
+  const [priority, setPriority] = useState<number>(DEFAULT_PRIORITY);
   const [completionDate, setCompletionDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -29,7 +38,7 @@ export function AddItemForm({ onAdd }: Props) {
       });
       setTitle("");
       setBody("");
-      setPriority(0);
+      setPriority(DEFAULT_PRIORITY);
       setCompletionDate("");
     } finally {
       setSubmitting(false);
@@ -54,11 +63,16 @@ export function AddItemForm({ onAdd }: Props) {
       <div className="add-item-row">
         <label>
           Priority
-          <input
-            type="number"
+          <select
             value={priority}
             onChange={(e) => setPriority(Number(e.target.value))}
-          />
+          >
+            {PRIORITY_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           Due
