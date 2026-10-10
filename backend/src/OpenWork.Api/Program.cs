@@ -1,4 +1,6 @@
 using System.Text.Json.Serialization;
+using Fido2NetLib;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using OpenWork.Api.Data;
 using OpenWork.Api.Endpoints;
@@ -21,6 +23,26 @@ builder.Services.AddScoped<VapidKeyProvider>();
 builder.Services.AddHostedService<NudgeBackgroundService>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
+
+builder.Services.AddFido2(options =>
+{
+    options.RPID = builder.Configuration["Fido2:ServerDomain"]
+        ?? throw new InvalidOperationException("Fido2:ServerDomain is required.");
+    options.RPName = "Open Work";
+    options.Origins = builder.Configuration.GetSection("Fido2:Origins").Get<string[]>() is { Length: > 0 } origins
+        ? origins.ToHashSet()
+        : throw new InvalidOperationException("Fido2:Origins is required.");
+});
+
+// Built directly from configuration (rather than resolved via DI) so the signing key is
+// validated once at startup, and so AddJwtBearer below can use it immediately rather than
+// deferring to an options-configure callback.
+var jwtTokenService = new JwtTokenService(builder.Configuration);
+builder.Services.AddSingleton(jwtTokenService);
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options => options.TokenValidationParameters = jwtTokenService.ValidationParameters);
+builder.Services.AddAuthorization();
 
 builder.Services.AddCors(options =>
 {
@@ -45,10 +67,14 @@ if (app.Environment.IsDevelopment())
     app.UseCors(DevCorsPolicy);
 }
 
+app.UseAuthentication();
+app.UseAuthorization();
+
 app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
 
-app.MapGroup("/api/workitems").MapWorkItemEndpoints();
-app.MapGroup("/api/push").MapPushEndpoints();
+app.MapGroup("/api/auth").MapAuthEndpoints();
+app.MapGroup("/api/workitems").MapWorkItemEndpoints().RequireAuthorization();
+app.MapGroup("/api/push").MapPushEndpoints().RequireAuthorization();
 
 // Serve the React build (copied into wwwroot during the Docker build) and fall back to
 // index.html for client-side routes that aren't API calls.
@@ -57,3 +83,4 @@ app.UseStaticFiles();
 app.MapFallbackToFile("index.html");
 
 app.Run();
+

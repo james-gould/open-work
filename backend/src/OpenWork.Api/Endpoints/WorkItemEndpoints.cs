@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using OpenWork.Api.Data;
@@ -13,11 +15,14 @@ public static class WorkItemEndpoints
     {
         group.MapGet("/", GetAll);
         group.MapGet("/next", GetNext);
+        group.MapGet("/report/done", DownloadDoneReport);
         group.MapPost("/", Create);
+        group.MapPost("/quick", QuickCapture);
         group.MapPatch("/{id:guid}", Update);
         group.MapDelete("/{id:guid}", Delete);
         group.MapPost("/{id:guid}/complete", Complete);
         group.MapPost("/{id:guid}/reopen", Reopen);
+        group.MapPost("/{id:guid}/actionable", MarkActionable);
         return group;
     }
 
@@ -126,6 +131,35 @@ public static class WorkItemEndpoints
             ["title"] = ["Title is required."]
         });
 
+    /// <summary>
+    /// The "park this distraction" capture path: just a title, dropped straight into the
+    /// Backlog, with everything else left to fill in later. Deliberately a separate,
+    /// narrower endpoint from <see cref="Create"/> rather than the same one with optional
+    /// fields, so the frontend's quick-capture UI only ever has to send one field.
+    /// </summary>
+    private static async Task<Results<Created<WorkItemResponse>, ValidationProblem>> QuickCapture(
+        AppDbContext db, QuickCaptureRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Title))
+        {
+            return TitleRequired();
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var item = new WorkItem
+        {
+            Title = request.Title.Trim(),
+            Status = WorkItemStatus.Backlog,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+
+        db.WorkItems.Add(item);
+        await db.SaveChangesAsync();
+
+        return TypedResults.Created($"/api/workitems/{item.Id}", Prioritization.ToResponse(item, now));
+    }
+
     private static async Task<Results<Ok<WorkItemResponse>, NotFound, ValidationProblem>> Update(
         AppDbContext db, Guid id, UpdateWorkItemRequest request)
     {
@@ -185,10 +219,24 @@ public static class WorkItemEndpoints
             item.Status = isDone ? WorkItemStatus.Done : WorkItemStatus.Backlog;
         }
 
-        item.UpdatedAt = DateTimeOffset.UtcNow;
+        var now = DateTimeOffset.UtcNow;
+
+        // Keep CompletedAt in sync no matter which field flipped the status to/away from
+        // Done, so the Done report stays accurate even for clients that PATCH Status
+        // directly instead of calling the dedicated /complete and /reopen endpoints.
+        if (item.Status == WorkItemStatus.Done)
+        {
+            item.CompletedAt ??= now;
+        }
+        else
+        {
+            item.CompletedAt = null;
+        }
+
+        item.UpdatedAt = now;
         await db.SaveChangesAsync();
 
-        return TypedResults.Ok(Prioritization.ToResponse(item, DateTimeOffset.UtcNow));
+        return TypedResults.Ok(Prioritization.ToResponse(item, now));
     }
 
     private static async Task<Results<NoContent, NotFound>> Delete(AppDbContext db, Guid id)
@@ -218,9 +266,95 @@ public static class WorkItemEndpoints
             return TypedResults.NotFound();
         }
 
+        var now = DateTimeOffset.UtcNow;
         item.Status = isDone ? WorkItemStatus.Done : WorkItemStatus.Backlog;
+        item.CompletedAt = isDone ? now : null;
+        item.UpdatedAt = now;
+        await db.SaveChangesAsync();
+        return TypedResults.Ok(Prioritization.ToResponse(item, now));
+    }
+
+    /// <summary>
+    /// Flips an item that is <see cref="WorkItemStatus.Waiting"/> back to actionable
+    /// (Backlog) once whatever it was waiting on has happened. Meant for a separate,
+    /// discreet automation to call (e.g. "has this PR been approved yet?"), distinct from
+    /// the hourly reminder sweep.
+    /// </summary>
+    private static async Task<Results<Ok<WorkItemResponse>, NotFound, Conflict<string>>> MarkActionable(
+        AppDbContext db, Guid id)
+    {
+        var item = await db.WorkItems.FindAsync(id);
+        if (item is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        if (item.Status != WorkItemStatus.Waiting)
+        {
+            return TypedResults.Conflict($"Item is {item.Status}, not Waiting - nothing to flip.");
+        }
+
+        item.Status = WorkItemStatus.Backlog;
         item.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync();
         return TypedResults.Ok(Prioritization.ToResponse(item, DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>
+    /// Downloadable CSV of completed items, optionally restricted to a completion-date
+    /// range, for reviewing "what did I actually get done lately?" outside the app.
+    /// </summary>
+    private static async Task<Results<FileContentHttpResult, ValidationProblem>> DownloadDoneReport(
+        AppDbContext db, DateTimeOffset? from = null, DateTimeOffset? to = null)
+    {
+        if (from is not null && to is not null && from > to)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["from"] = ["'from' must not be after 'to'."]
+            });
+        }
+
+        var query = db.WorkItems.Where(w => w.Status == WorkItemStatus.Done);
+        if (from is { } fromValue)
+        {
+            query = query.Where(w => w.CompletedAt >= fromValue);
+        }
+
+        if (to is { } toValue)
+        {
+            query = query.Where(w => w.CompletedAt <= toValue);
+        }
+
+        var items = await query.OrderBy(w => w.CompletedAt).ToListAsync();
+
+        var csv = new StringBuilder();
+        csv.AppendLine("Title,Reference,Priority,CreatedAt,CompletedAt");
+        foreach (var item in items)
+        {
+            csv.AppendLine(string.Join(',',
+                CsvField(item.Title),
+                CsvField(item.Reference),
+                item.Priority.ToString(CultureInfo.InvariantCulture),
+                item.CreatedAt.ToString("O"),
+                item.CompletedAt?.ToString("O") ?? ""));
+        }
+
+        var bytes = Encoding.UTF8.GetBytes(csv.ToString());
+        var fileName = $"open-work-done-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}.csv";
+        return TypedResults.File(bytes, "text/csv", fileName);
+    }
+
+    private static string CsvField(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return "";
+        }
+
+        var escaped = value.Replace("\"", "\"\"");
+        return value.Contains(',') || value.Contains('"') || value.Contains('\n')
+            ? $"\"{escaped}\""
+            : escaped;
     }
 }

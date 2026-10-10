@@ -22,6 +22,63 @@ namespace OpenWork.Api.Data.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("OpenWork.Api.Models.AuthConfig", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("FailedAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("LockedUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("PendingCeremonyExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PendingCeremonyOptionsJson")
+                        .HasColumnType("text");
+
+                    b.Property<byte[]>("PinHash")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<int>("PinIterations")
+                        .HasColumnType("integer");
+
+                    b.Property<byte[]>("PinSalt")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<bool>("RecoveryBackupEligible")
+                        .HasColumnType("boolean");
+
+                    b.Property<byte[]>("RecoveryCredentialId")
+                        .HasColumnType("bytea");
+
+                    b.Property<byte[]>("RecoveryPublicKey")
+                        .HasColumnType("bytea");
+
+                    b.Property<DateTimeOffset?>("RecoveryRegisteredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("RecoverySignCount")
+                        .HasColumnType("bigint");
+
+                    b.Property<byte[]>("RecoveryUserHandle")
+                        .HasColumnType("bytea");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("AuthConfig");
+                });
+
             modelBuilder.Entity("OpenWork.Api.Models.PushSubscriptionRecord", b =>
                 {
                     b.Property<Guid>("Id")
@@ -80,6 +137,9 @@ namespace OpenWork.Api.Data.Migrations
 
                     b.Property<string>("Body")
                         .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset?>("CompletionDueAt")
                         .HasColumnType("timestamp with time zone");

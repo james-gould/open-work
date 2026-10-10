@@ -21,7 +21,8 @@
 //   az group create -n rg-open-work -l uksouth
 //   az deployment group create -g rg-open-work -f infra/main.bicep \
 //       -p namePrefix=openwork vapidSubject=mailto:you@example.com \
-//       -p postgresAdminPassword=<a strong password, not committed anywhere>
+//       -p postgresAdminPassword=<a strong password, not committed anywhere> \
+//       -p authSigningKey=<a random 32+ char string, not committed anywhere>
 //
 // GHCR auth: if the GHCR package is public (Settings > Package > Change
 // visibility, one-time), leave ghcrUsername/ghcrToken empty and the
@@ -56,6 +57,11 @@ param postgresAdminLogin string = 'openworkadmin'
 @description('Admin password for the PostgreSQL Flexible Server. Required - choose a strong value, pass it on the command line only (never commit it).')
 @secure()
 param postgresAdminPassword string
+
+@description('Symmetric signing key (32+ chars) for the JWT bearer tokens issued by PIN auth. Required - generate a strong random value, pass it on the command line only (never commit it).')
+@secure()
+@minLength(32)
+param authSigningKey string
 
 var sanitizedPrefix = toLower(namePrefix)
 var containerAppEnvName = '${sanitizedPrefix}-env'
@@ -155,6 +161,10 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
       secrets: concat(
         [
           {
+            name: 'auth-signing-key'
+            value: authSigningKey
+          }
+          {
             name: 'db-connection-string'
             value: 'Host=${postgresServer.properties.fullyQualifiedDomainName};Database=${postgresDatabaseName};Username=${postgresAdminLogin};Password=${postgresAdminPassword};SSL Mode=Require;Trust Server Certificate=true'
           }
@@ -187,6 +197,10 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             {
               name: 'ConnectionStrings__Default'
               secretRef: 'db-connection-string'
+            }
+            {
+              name: 'Auth__SigningKey'
+              secretRef: 'auth-signing-key'
             }
             {
               name: 'Vapid__Subject'

@@ -58,12 +58,30 @@ instance.
 Items synced from Copilot sessions carry `externalKey: "copilot-session:<sessionId>"`;
 POSTing the same key again returns the existing item instead of a duplicate.
 
+## Authentication
+
+Every request below (except `GET /api/auth/status`) requires
+`Authorization: Bearer $env:OPEN_WORK_API_TOKEN` - the app is locked with a
+PIN and issues a 365-day JWT on login/setup, which this agent persists as a
+user-scoped environment variable rather than re-authenticating every time.
+
+- If `$env:OPEN_WORK_API_TOKEN` is unset, or a call comes back `401`, do not
+  guess or retry silently - tell the user plainly that the token is
+  missing/invalid and that logging in again (PIN, via the web UI or
+  `POST /api/auth/login`) is required to mint a fresh one. Only the user can
+  supply the PIN.
+- Once a fresh token is minted, persist it with
+  `[Environment]::SetEnvironmentVariable("OPEN_WORK_API_TOKEN", "<token>", "User")`
+  so it survives across terminals/sessions, and use it for every subsequent
+  call in this and future sessions.
+
 ## Responding to `/pending`
 
 If the user's message is literally `/pending` (or very close to it, e.g.
 "pending", "what's next"):
 
-1. `GET {OPEN_WORK_API_BASE_URL}/api/workitems/next` (this already excludes
+1. `GET {OPEN_WORK_API_BASE_URL}/api/workitems/next` with
+   `Authorization: Bearer $env:OPEN_WORK_API_TOKEN` (this already excludes
    `Done` and, by default, `InProgress` items, and is pre-sorted top-down by
    category then urgency then priority - the single highest-priority genuinely
    pending item).
@@ -81,16 +99,19 @@ via `dynamic_workflows_manage`) normally does this automatically. If the user
 asks you to sync/check now, or the automation isn't enabled yet:
 
 1. Call `run_dynamic_workflow` with `name: "daily-driver-hourly-sweep"` and
-   `args: { apiBaseUrl: "<the real API base URL>", creatorSessionId: "<this
-   session's id, if you want a reminder delivered here>", dryRun: false }`.
-   If the workflow isn't registered in this session yet, re-author it first
-   with `dynamic_workflows_manage` (`operation: "author"`) using the `meta`
-   and `run` from the "Canonical workflow source" section of
-   `DAILY_DRIVER.md` in the repo root, verbatim.
+   `args: { apiBaseUrl: "<the real API base URL>", authToken: "$env:OPEN_WORK_API_TOKEN",
+   creatorSessionId: "<this session's id, if you want a reminder delivered
+   here>", dryRun: false }`. If the workflow isn't registered in this session
+   yet, re-author it first with `dynamic_workflows_manage`
+   (`operation: "author"`) using the `meta` and `run` from the "Canonical
+   workflow source" section of `DAILY_DRIVER.md` in the repo root, verbatim.
 2. Summarize the result briefly: how many items were synced, and whether any
-   Critical/Warning items are pending and not in progress.
+   Critical/Warning items are pending and not in progress. If the log shows
+   401s, tell the user the token needs refreshing rather than retrying.
 
 ## General querying
+
+All calls below need `Authorization: Bearer $env:OPEN_WORK_API_TOKEN`.
 
 - `GET /api/workitems?status=Backlog&status=Blocked&category=Critical&category=Warning`
   lists everything reminder-worthy, sorted top-down.
@@ -98,6 +119,14 @@ asks you to sync/check now, or the automation isn't enabled yet:
   progression state - do this proactively when the user says they've started
   something, so the next reminder sweep correctly leaves it alone.
 - `POST /api/workitems/{id}/complete` marks an item Done.
+- `POST /api/workitems/{id}/actionable` flips a `Waiting` item to `Backlog`
+  when whatever it was waiting on has resolved - this is distinct from the
+  hourly sweep and only runs when the user or an automation explicitly says
+  the blocker has cleared.
+- `POST /api/workitems/quick` with `{"title": "..."}` parks a one-line
+  distraction thought with no other fields required - use this when the user
+  wants to jot something down without breaking flow to fill out the full
+  form.
 
 Keep every reply short. A wall of text is its own form of friction for this
 user.

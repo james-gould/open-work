@@ -65,7 +65,8 @@ body {
   cursor: pointer;
 }
 
-.notification-settings.muted {
+.notification-settings.muted,
+p.muted {
   font-size: 0.75rem;
   color: var(--muted-text);
   margin: 0;
@@ -298,6 +299,206 @@ body {
   border-radius: 8px;
   padding: 0.5rem 0.75rem;
   font-size: 0.85rem;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  color: var(--muted-text);
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.85rem;
+}
+
+.auth-screen {
+  max-width: 360px;
+  margin: 3rem auto;
+  padding: 1.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  text-align: center;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  text-align: left;
+}
+
+.auth-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  color: var(--muted-text);
+}
+
+.auth-form input {
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+  letter-spacing: 0.2em;
+}
+
+.auth-form button[type="submit"] {
+  background: var(--text);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.auth-form button[type="submit"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.auth-form-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.danger-text {
+  color: var(--critical-accent);
+  font-size: 0.9rem;
+}
+
+.quick-capture {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.quick-capture input {
+  flex: 1 1 auto;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+}
+
+.quick-capture button {
+  background: var(--text);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.quick-capture button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.recovery-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.recovery-settings button {
+  align-self: flex-start;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 0.4rem 0.7rem;
+  cursor: pointer;
+}
+
+.done-report {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.done-report-body {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.done-report-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+}
+
+.done-report-controls label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.75rem;
+  color: var(--muted-text);
+  gap: 0.2rem;
+}
+
+.done-report-controls input {
+  padding: 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+}
+
+.done-report-controls button {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 0.4rem 0.7rem;
+  cursor: pointer;
+}
+
+.done-item-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.done-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.done-item-title {
+  flex: 1 1 auto;
+  text-decoration: line-through;
+  color: var(--muted-text);
+}
+
+.done-item-date {
+  font-size: 0.75rem;
+  color: var(--muted-text);
+  white-space: nowrap;
+}
+
+.done-item button {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.8rem;
+  cursor: pointer;
 }
 
 @media (min-width: 640px) {

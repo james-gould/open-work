@@ -17,7 +17,8 @@ public record WorkItemResponse(
     WorkItemStatus Status,
     bool IsDone,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt
+    DateTimeOffset UpdatedAt,
+    DateTimeOffset? CompletedAt
 );
 
 /// <summary>
@@ -64,3 +65,10 @@ public record PushSubscriptionKeys(string P256dh, string Auth);
 public record PushSubscriptionRequest(string Endpoint, PushSubscriptionKeys Keys);
 
 public record PushUnsubscribeRequest(string Endpoint);
+
+/// <summary>
+/// The "park this distraction" quick-capture shape: just a title, nothing else to fill in
+/// right now. Everything else can be added later by editing the item normally.
+/// </summary>
+public record QuickCaptureRequest(string Title);
+

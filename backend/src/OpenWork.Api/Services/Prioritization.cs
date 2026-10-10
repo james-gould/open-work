@@ -74,6 +74,7 @@ public static class Prioritization
         item.Status,
         item.IsDone,
         item.CreatedAt,
-        item.UpdatedAt
+        item.UpdatedAt,
+        item.CompletedAt
     );
 }

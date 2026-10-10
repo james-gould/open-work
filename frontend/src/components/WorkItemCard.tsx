@@ -22,7 +22,8 @@ const CATEGORIES: WorkItemCategory[] = ["Critical", "Warning", "Acceptable"];
 const STATUSES: { value: WorkItemStatus; label: string }[] = [
   { value: "Backlog", label: "Not started" },
   { value: "InProgress", label: "In progress" },
-  { value: "Blocked", label: "Blocked" }
+  { value: "Blocked", label: "Blocked" },
+  { value: "Waiting", label: "Waiting on someone/something" }
 ];
 
 function formatDate(iso: string | null): string {

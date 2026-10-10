@@ -57,6 +57,13 @@ public class WorkItem
     /// <summary>Back-compat convenience view of <see cref="Status"/> for existing API consumers.</summary>
     public bool IsDone => Status == WorkItemStatus.Done;
 
+    /// <summary>
+    /// When the item was marked Done. Null while still open. Powers the downloadable
+    /// Done-items report (time-range filtered) - distinct from <see cref="UpdatedAt"/> so a
+    /// later edit to a completed item's title doesn't masquerade as a new completion date.
+    /// </summary>
+    public DateTimeOffset? CompletedAt { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;

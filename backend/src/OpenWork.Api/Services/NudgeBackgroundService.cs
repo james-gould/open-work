@@ -66,9 +66,11 @@ public class NudgeBackgroundService(
         }
 
         var now = DateTimeOffset.UtcNow;
-        // InProgress items are already being worked, so they're "progressing" and don't need a nudge.
+        // InProgress items are already being worked, and Waiting items can't be acted on until
+        // something else happens - neither needs a nudge.
         var items = await db.WorkItems
-            .Where(w => w.Status != WorkItemStatus.Done && w.Status != WorkItemStatus.InProgress)
+            .Where(w => w.Status != WorkItemStatus.Done && w.Status != WorkItemStatus.InProgress
+                && w.Status != WorkItemStatus.Waiting)
             .ToListAsync(ct);
 
         var dueForNudge = items

@@ -11,5 +11,13 @@ public enum WorkItemStatus
     Backlog = 0,
     InProgress = 1,
     Blocked = 2,
-    Done = 3
+    Done = 3,
+
+    /// <summary>
+    /// Waiting on someone/something else before it's actionable again (e.g. "waiting on a
+    /// reply"). Distinct from <see cref="Blocked"/> so a separate automation can watch for
+    /// "has the thing I'm waiting on happened?" and flip it back to actionable, without the
+    /// hourly nudge sweep nagging about it in the meantime.
+    /// </summary>
+    Waiting = 4
 }

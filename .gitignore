@@ -27,3 +27,6 @@ Thumbs.db
 corp-root-ca.crt
 Dockerfile.local-verify
 
+# Stray output from ad-hoc local server runs during manual testing
+/*.log
+

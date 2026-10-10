@@ -11,6 +11,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     public DbSet<VapidKeySet> VapidKeys => Set<VapidKeySet>();
 
+    public DbSet<AuthConfig> AuthConfig => Set<AuthConfig>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<WorkItem>(entity =>
@@ -31,6 +33,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.Entity<VapidKeySet>(entity =>
         {
             entity.HasKey(v => v.Id);
+        });
+
+        modelBuilder.Entity<AuthConfig>(entity =>
+        {
+            entity.HasKey(a => a.Id);
         });
     }
 }

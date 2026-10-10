@@ -146,6 +146,44 @@ is safe to repeat) at the start of every hourly run, before calling it. This
 is slightly wasteful (re-registers an already-identical workflow every hour)
 but removes the persistence risk entirely.
 
+## Authentication
+
+Every `/api/workitems*` and `/api/auth/*` route now requires a bearer token
+(`Authorization: Bearer <jwt>`), except `GET /api/auth/status`. This was added
+so the live app isn't reachable by anyone who finds the URL.
+
+- **The owner locks the app with a PIN**, not a password: on a blank install,
+  the web UI shows a "choose a PIN" screen (`POST /api/auth/setup`); on every
+  later visit it demands that PIN (`POST /api/auth/login`). Both return a JWT
+  that's valid for 365 days - deliberately long-lived, since this app is
+  driven by an unattended hourly sweep as much as a browser, and a
+  silently-expiring token would reintroduce the exact "it stops working and
+  nobody notices" failure mode this whole project exists to avoid.
+- **The browser** stores its token in `localStorage` and attaches it to every
+  request; logging out just clears it client-side (the token itself isn't
+  revoked server-side - there's no server-side session to revoke).
+- **The agent persists its own copy of that same kind of token** in a
+  user-scoped environment variable, `OPEN_WORK_API_TOKEN`, set with
+  `[Environment]::SetEnvironmentVariable("OPEN_WORK_API_TOKEN", "<token>",
+  "User")` so it survives across terminals/sessions on this machine. Every
+  HTTP call this agent makes to Open Work - the `/pending` lookup, general
+  querying, and the hourly workflow's `fetch` calls - must send
+  `Authorization: Bearer $env:OPEN_WORK_API_TOKEN`.
+- **If a call comes back `401`**, the token is missing, malformed, or the
+  signing key was rotated: tell the user plainly, don't guess at a fix. Fixing
+  it means logging in again (PIN) to mint a fresh token and re-persisting it
+  to the env var - the user has to supply the PIN; the agent cannot recover
+  or guess it.
+- **Lost-PIN recovery** is a passkey (WebAuthn/FIDO2)-gated wipe, registered
+  once while already logged in (`POST /api/auth/recovery/register-options`
+  → `/register`), and exercised from the login screen's "Forgot your PIN?"
+  link (`/recovery/assertion-options` → `/recovery/wipe`). There is
+  deliberately no gentler recovery path: a single-user, self-hosted app has
+  no password-reset email to send anywhere, so the only alternative to "prove
+  you hold a registered authenticator" is "lose everything and start over."
+  Successful recovery wipes every `WorkItem`/push subscription and the PIN
+  itself, returning the install to its blank-install state.
+
 ## Assumptions made (please confirm/adjust)
 
 - **Open Work is the backing store for "pending workloads in flight with
@@ -171,6 +209,11 @@ but removes the persistence risk entirely.
 - No true OS-level push/toast notification exists in my toolset; the reminder
   is delivered as an in-app session message, which only surfaces if you still
   have that session open/visible.
+- The workflow's `fetch` calls now require `args.authToken` (read from the
+  `OPEN_WORK_API_TOKEN` env var when re-authoring the workflow each run). If
+  that token is missing or has been invalidated (signing key rotated), every
+  Sync/Check call will 401 and the run logs that rather than silently
+  skipping - re-login (PIN) and update the env var to fix it.
 
 ## Canonical workflow source
 
@@ -183,7 +226,7 @@ Automation reads this `meta` and `run` and re-authors the workflow with
 ```json
 {
   "name": "daily-driver-hourly-sweep",
-  "description": "Daily Driver hourly reminder sweep: extracts pending to-dos from in-flight Copilot sessions via a sub-agent (one per session), upserts them into Open Work as WorkItems (de-duplicated via externalKey copilot-session:<sessionId>), then checks for Critical/Warning items that are not InProgress and reminds the user via a sub-agent sending a session message. args: { apiBaseUrl: string (Open Work API base URL), creatorSessionId?: string (session to message with the reminder), dryRun?: boolean (skip sending the real reminder message, just log it) }.",
+  "description": "Daily Driver hourly reminder sweep: extracts pending to-dos from in-flight Copilot sessions via a sub-agent (one per session), upserts them into Open Work as WorkItems (de-duplicated via externalKey copilot-session:<sessionId>), then checks for Critical/Warning items that are not InProgress and reminds the user via a sub-agent sending a session message. All Open Work API calls send Authorization: Bearer <authToken>. args: { apiBaseUrl: string (Open Work API base URL), authToken: string (bearer token for the Open Work API, from the OPEN_WORK_API_TOKEN env var), creatorSessionId?: string (session to message with the reminder), dryRun?: boolean (skip sending the real reminder message, just log it) }.",
   "phases": [
     { "title": "Extract", "detail": "Sub-agent scans other in-flight Copilot sessions for genuinely pending work" },
     { "title": "Sync", "detail": "Upsert extracted items into Open Work as WorkItems" },
@@ -192,9 +235,10 @@ Automation reads this `meta` and `run` and re-authors the workflow with
   ],
   "argsSchema": {
     "type": "object",
-    "required": ["apiBaseUrl"],
+    "required": ["apiBaseUrl", "authToken"],
     "properties": {
       "apiBaseUrl": { "type": "string" },
+      "authToken": { "type": "string" },
       "creatorSessionId": { "type": "string" },
       "dryRun": { "type": "boolean" }
     }
@@ -207,6 +251,8 @@ Automation reads this `meta` and `run` and re-authors the workflow with
 ```js
 async ({ args, log, phase, agent, step, signal }) => {
   const apiBaseUrl = String(args.apiBaseUrl || "").replace(/\/$/, "");
+  const authToken = String(args.authToken || "");
+  const authHeaders = authToken ? { Authorization: `Bearer ${authToken}` } : {};
   const creatorSessionId = args.creatorSessionId || null;
   const dryRun = !!args.dryRun;
 
@@ -273,7 +319,7 @@ async ({ args, log, phase, agent, step, signal }) => {
       try {
         const res = await fetch(`${apiBaseUrl}/api/workitems`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...authHeaders },
           body: JSON.stringify(body),
           signal,
         });
@@ -286,13 +332,17 @@ async ({ args, log, phase, agent, step, signal }) => {
   });
   const createdCount = synced.filter((r) => r.created).length;
   const existingCount = synced.filter((r) => r.ok && !r.created).length;
+  const unauthorizedCount = synced.filter((r) => r.httpStatus === 401).length;
   log(`Synced ${synced.filter((r) => r.ok).length}/${synced.length} item(s): ${createdCount} new, ${existingCount} already tracked.`);
+  if (unauthorizedCount > 0) {
+    log(`${unauthorizedCount} sync call(s) returned 401 - authToken is missing or invalid; re-login and refresh OPEN_WORK_API_TOKEN.`);
+  }
 
   phase("Check");
   const pending = await step("check-pending-v1", async () => {
     const url = `${apiBaseUrl}/api/workitems?category=Critical&category=Warning&status=Backlog&status=Blocked`;
     try {
-      const res = await fetch(url, { signal });
+      const res = await fetch(url, { headers: authHeaders, signal });
       if (!res.ok) return [];
       return await res.json();
     } catch {

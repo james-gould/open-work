@@ -1,6 +1,6 @@
 export type WorkItemCategory = "Critical" | "Warning" | "Acceptable";
 
-export type WorkItemStatus = "Backlog" | "InProgress" | "Blocked" | "Done";
+export type WorkItemStatus = "Backlog" | "InProgress" | "Blocked" | "Waiting" | "Done";
 
 export interface WorkItem {
   id: string;
@@ -17,6 +17,7 @@ export interface WorkItem {
   isDone: boolean;
   createdAt: string;
   updatedAt: string;
+  completedAt: string | null;
 }
 
 export interface CreateWorkItemRequest {
@@ -46,4 +47,18 @@ export interface UpdateWorkItemRequest {
   manualCategory?: WorkItemCategory | null;
   status?: WorkItemStatus;
   isDone?: boolean;
+}
+
+export interface QuickCaptureRequest {
+  title: string;
+}
+
+export interface AuthStatusResponse {
+  configured: boolean;
+  hasRecovery: boolean;
+}
+
+export interface AuthTokenResponse {
+  token: string;
+  expiresAt: string;
 }
