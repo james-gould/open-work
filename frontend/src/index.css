@@ -253,6 +253,13 @@ p.muted {
   margin: 0;
 }
 
+.work-item-autosave-hint,
+.work-item-field-hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted-text);
+}
+
 .work-item-controls {
   display: flex;
   flex-wrap: wrap;
@@ -421,6 +428,28 @@ p.muted {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
+}
+
+.scheduled-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.scheduled-items-body {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.scheduled-items-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted-text);
 }
 
 .done-report-body {

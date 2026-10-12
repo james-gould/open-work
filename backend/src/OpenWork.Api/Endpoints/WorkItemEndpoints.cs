@@ -15,6 +15,7 @@ public static class WorkItemEndpoints
     {
         group.MapGet("/", GetAll);
         group.MapGet("/next", GetNext);
+        group.MapGet("/scheduled", GetScheduled);
         group.MapGet("/report/done", DownloadDoneReport);
         group.MapPost("/", Create);
         group.MapPost("/quick", QuickCapture);
@@ -31,9 +32,13 @@ public static class WorkItemEndpoints
     /// urgency <paramref name="category"/> (repeat the query key for multiple values, e.g.
     /// <c>?status=Backlog&amp;status=Blocked</c>). Always sorted top-down by priority
     /// (category, then requires-action age, then due date, then manual priority number).
+    /// Items that can't be started yet (<see cref="Prioritization.IsPendingStart"/>) are left
+    /// out by default - see <see cref="GetScheduled"/> for those - since there's nothing to do
+    /// about them until their start date arrives.
     /// </summary>
     private static async Task<Ok<List<WorkItemResponse>>> GetAll(
-        AppDbContext db, bool includeDone = false, WorkItemStatus[]? status = null, WorkItemCategory[]? category = null)
+        AppDbContext db, bool includeDone = false, bool includeScheduled = false,
+        WorkItemStatus[]? status = null, WorkItemCategory[]? category = null)
     {
         var now = DateTimeOffset.UtcNow;
         var query = db.WorkItems.AsQueryable();
@@ -48,6 +53,11 @@ public static class WorkItemEndpoints
         }
 
         var items = await query.ToListAsync();
+        if (!includeScheduled)
+        {
+            items = items.Where(w => !Prioritization.IsPendingStart(w, now)).ToList();
+        }
+
         return TypedResults.Ok(SortAndFilterByCategory(items, category, now));
     }
 
@@ -55,7 +65,8 @@ public static class WorkItemEndpoints
     /// Returns the single highest-priority item that is not Done (and, by default, not
     /// already InProgress) - this is the backing query for the <c>/pending</c> command and
     /// the hourly reminder sweep: "what's the one thing I should pick up next?".
-    /// Pass <paramref name="excludeInProgress"/>=false to also see in-flight work.
+    /// Pass <paramref name="excludeInProgress"/>=false to also see in-flight work. Items that
+    /// can't be started yet are never returned here, regardless of how urgent they look.
     /// </summary>
     private static async Task<Results<Ok<WorkItemResponse>, NoContent>> GetNext(
         AppDbContext db, bool excludeInProgress = true, WorkItemCategory[]? category = null)
@@ -68,8 +79,25 @@ public static class WorkItemEndpoints
         }
 
         var items = await query.ToListAsync();
+        items = items.Where(w => !Prioritization.IsPendingStart(w, now)).ToList();
         var next = SortAndFilterByCategory(items, category, now).FirstOrDefault();
         return next is null ? TypedResults.NoContent() : TypedResults.Ok(next);
+    }
+
+    /// <summary>
+    /// Lists not-yet-startable items (future <see cref="WorkItem.StartAt"/>), soonest first,
+    /// so they stay reachable for review/editing without cluttering the main list or being
+    /// picked up as "next" before there's anything to actually do.
+    /// </summary>
+    private static async Task<Ok<List<WorkItemResponse>>> GetScheduled(AppDbContext db)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var items = await db.WorkItems
+            .Where(w => w.Status != WorkItemStatus.Done && w.StartAt != null && w.StartAt > now)
+            .OrderBy(w => w.StartAt)
+            .ToListAsync();
+
+        return TypedResults.Ok(items.Select(w => Prioritization.ToResponse(w, now)).ToList());
     }
 
     private static List<WorkItemResponse> SortAndFilterByCategory(
@@ -113,6 +141,7 @@ public static class WorkItemEndpoints
             Priority = request.Priority,
             RequiresActionAt = request.RequiresActionAt?.ToUniversalTime(),
             CompletionDueAt = request.CompletionDueAt?.ToUniversalTime(),
+            StartAt = request.StartAt?.ToUniversalTime(),
             ManualCategory = request.ManualCategory,
             Status = request.Status,
             CreatedAt = now,
@@ -202,6 +231,11 @@ public static class WorkItemEndpoints
         if (request.CompletionDueAtSet)
         {
             item.CompletionDueAt = request.CompletionDueAt?.ToUniversalTime();
+        }
+
+        if (request.StartAtSet)
+        {
+            item.StartAt = request.StartAt?.ToUniversalTime();
         }
 
         if (request.ManualCategorySet)

@@ -165,6 +165,9 @@ namespace OpenWork.Api.Data.Migrations
                     b.Property<DateTimeOffset?>("RequiresActionAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTimeOffset?>("StartAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 

@@ -67,13 +67,15 @@ public class NudgeBackgroundService(
 
         var now = DateTimeOffset.UtcNow;
         // InProgress items are already being worked, and Waiting items can't be acted on until
-        // something else happens - neither needs a nudge.
+        // something else happens - neither needs a nudge. Items not yet startable
+        // (future StartAt) are filtered out below, once urgency has been resolved.
         var items = await db.WorkItems
             .Where(w => w.Status != WorkItemStatus.Done && w.Status != WorkItemStatus.InProgress
                 && w.Status != WorkItemStatus.Waiting)
             .ToListAsync(ct);
 
         var dueForNudge = items
+            .Where(w => !Prioritization.IsPendingStart(w, now))
             .Where(w => Prioritization.Resolve(w, now) == WorkItemCategory.Critical)
             .Where(w => w.LastNudgedAt is null || now - w.LastNudgedAt >= Prioritization.NudgeCooldown)
             .ToList();

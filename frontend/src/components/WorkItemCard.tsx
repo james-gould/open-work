@@ -18,7 +18,8 @@ interface Props {
 
 const CATEGORIES: WorkItemCategory[] = ["Critical", "Warning", "Acceptable"];
 
-// Done is reached via the Done button so it goes through the complete endpoint.
+// Done is reached via the "Mark as done" button so it goes through the complete endpoint,
+// rather than being selectable here alongside the auto-saving progression states below.
 const STATUSES: { value: WorkItemStatus; label: string }[] = [
   { value: "Backlog", label: "Not started" },
   { value: "InProgress", label: "In progress" },
@@ -71,7 +72,15 @@ export function WorkItemCard({ item, onUpdate, onComplete, onDelete }: Props) {
             <dd>{formatDate(item.requiresActionAt)}</dd>
             <dt>Due</dt>
             <dd>{formatDate(item.completionDueAt)}</dd>
+            {item.startAt && (
+              <>
+                <dt>Can't start until</dt>
+                <dd>{formatDate(item.startAt)}</dd>
+              </>
+            )}
           </dl>
+
+          <p className="work-item-autosave-hint">Changes below save automatically as you make them.</p>
 
           <div className="work-item-controls">
             <label>
@@ -168,6 +177,26 @@ export function WorkItemCard({ item, onUpdate, onComplete, onDelete }: Props) {
             />
 
             <label>
+              Can't start until
+              <input
+                type="date"
+                value={isoToDateInput(item.startAt)}
+                onChange={(e) =>
+                  void onUpdate(item.id, {
+                    startAtSet: true,
+                    startAt: dateInputToIso(e.target.value)
+                  })
+                }
+              />
+            </label>
+            <QuickDateButtons
+              onSelect={(date) => void onUpdate(item.id, { startAtSet: true, startAt: dateInputToIso(date) })}
+            />
+            <p className="work-item-field-hint">
+              Keeps this off the main list and nudges until that date, even if it's Critical by its due date.
+            </p>
+
+            <label>
               Category override
               <select
                 value={item.isManualCategory ? item.category : ""}
@@ -208,7 +237,7 @@ export function WorkItemCard({ item, onUpdate, onComplete, onDelete }: Props) {
 
             <div className="work-item-actions">
               <button type="button" onClick={() => void onComplete(item.id)}>
-                Done
+                Mark as done
               </button>
               <button type="button" className="danger" onClick={() => void onDelete(item.id)}>
                 Delete

@@ -6,6 +6,7 @@ import { DoneReport } from "./components/DoneReport";
 import { NotificationSettings } from "./components/NotificationSettings";
 import { QuickCapture } from "./components/QuickCapture";
 import { RecoverySettings } from "./components/RecoverySettings";
+import { ScheduledItems } from "./components/ScheduledItems";
 import { WorkItemList } from "./components/WorkItemList";
 import type { CreateWorkItemRequest, UpdateWorkItemRequest, WorkItem } from "./types";
 
@@ -26,14 +27,16 @@ interface AppContentProps {
 
 function AppContent({ onLogout, hasRecovery }: AppContentProps) {
   const [items, setItems] = useState<WorkItem[]>([]);
+  const [scheduledItems, setScheduledItems] = useState<WorkItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [recoveryKnown, setRecoveryKnown] = useState(hasRecovery);
 
   const refresh = useCallback(async () => {
     try {
-      const data = await api.listWorkItems();
+      const [data, scheduled] = await Promise.all([api.listWorkItems(), api.listScheduledWorkItems()]);
       setItems(data);
+      setScheduledItems(scheduled);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load work items.");
@@ -106,6 +109,13 @@ function AppContent({ onLogout, hasRecovery }: AppContentProps) {
           onDelete={handleDelete}
         />
       )}
+
+      <ScheduledItems
+        items={scheduledItems}
+        onUpdate={handleUpdate}
+        onComplete={handleComplete}
+        onDelete={handleDelete}
+      />
 
       <DoneReport onReopen={handleReopen} />
 

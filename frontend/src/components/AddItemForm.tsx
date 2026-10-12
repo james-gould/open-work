@@ -17,6 +17,7 @@ export function AddItemForm({ onAdd }: Props) {
   const [reference, setReference] = useState("");
   const [priority, setPriority] = useState<number>(DEFAULT_PRIORITY);
   const [completionDate, setCompletionDate] = useState("");
+  const [startDate, setStartDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
@@ -30,13 +31,15 @@ export function AddItemForm({ onAdd }: Props) {
         body: body.trim() || null,
         reference: reference.trim() || null,
         priority,
-        completionDueAt: dateInputToIso(completionDate)
+        completionDueAt: dateInputToIso(completionDate),
+        startAt: dateInputToIso(startDate)
       });
       setTitle("");
       setBody("");
       setReference("");
       setPriority(DEFAULT_PRIORITY);
       setCompletionDate("");
+      setStartDate("");
     } finally {
       setSubmitting(false);
     }
@@ -86,6 +89,11 @@ export function AddItemForm({ onAdd }: Props) {
           />
         </label>
         <QuickDateButtons onSelect={setCompletionDate} />
+        <label>
+          Can't start until
+          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        </label>
+        <QuickDateButtons onSelect={setStartDate} />
       </div>
       <button type="submit" disabled={submitting || !title.trim()}>
         Add item

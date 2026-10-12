@@ -18,6 +18,16 @@ public static class Prioritization
     /// <summary>Minimum gap between repeat push nudges for the same Critical item.</summary>
     public static readonly TimeSpan NudgeCooldown = TimeSpan.FromMinutes(30);
 
+    /// <summary>
+    /// True when the item has a future <see cref="WorkItem.StartAt"/> - i.e. it genuinely
+    /// cannot be started yet, regardless of how urgent its due date makes it look. Items in
+    /// this state are kept out of the main list, the "pick up next" query, and nudges, but
+    /// urgency (<see cref="Resolve"/>) is computed independently so the due-date escalation
+    /// still applies the moment it becomes startable.
+    /// </summary>
+    public static bool IsPendingStart(WorkItem item, DateTimeOffset now) =>
+        item.StartAt is { } startAt && startAt > now;
+
     public static WorkItemCategory Resolve(WorkItem item, DateTimeOffset now)
     {
         if (item.ManualCategory is { } manual)
@@ -69,6 +79,7 @@ public static class Prioritization
         item.Priority,
         item.RequiresActionAt,
         item.CompletionDueAt,
+        item.StartAt,
         Resolve(item, now),
         item.ManualCategory is not null,
         item.Status,

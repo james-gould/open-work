@@ -39,6 +39,8 @@ export const api = {
   listWorkItems: (includeDone = false) =>
     request<WorkItem[]>(`/api/workitems?includeDone=${includeDone}`),
 
+  listScheduledWorkItems: () => request<WorkItem[]>("/api/workitems/scheduled"),
+
   createWorkItem: (body: CreateWorkItemRequest) =>
     request<WorkItem>("/api/workitems", { method: "POST", body: JSON.stringify(body) }),
 

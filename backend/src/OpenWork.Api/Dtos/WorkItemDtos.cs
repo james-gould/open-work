@@ -12,6 +12,7 @@ public record WorkItemResponse(
     int Priority,
     DateTimeOffset? RequiresActionAt,
     DateTimeOffset? CompletionDueAt,
+    DateTimeOffset? StartAt,
     WorkItemCategory Category,
     bool IsManualCategory,
     WorkItemStatus Status,
@@ -35,7 +36,8 @@ public record CreateWorkItemRequest(
     WorkItemStatus Status = WorkItemStatus.Backlog,
     string? Reference = null,
     WorkItemCategory? ManualCategory = null,
-    string? ExternalKey = null
+    string? ExternalKey = null,
+    DateTimeOffset? StartAt = null
 );
 
 /// <summary>
@@ -54,6 +56,8 @@ public record UpdateWorkItemRequest(
     DateTimeOffset? RequiresActionAt = null,
     bool CompletionDueAtSet = false,
     DateTimeOffset? CompletionDueAt = null,
+    bool StartAtSet = false,
+    DateTimeOffset? StartAt = null,
     bool ManualCategorySet = false,
     WorkItemCategory? ManualCategory = null,
     WorkItemStatus? Status = null,

@@ -11,6 +11,7 @@ export interface WorkItem {
   priority: number;
   requiresActionAt: string | null;
   completionDueAt: string | null;
+  startAt: string | null;
   category: WorkItemCategory;
   isManualCategory: boolean;
   status: WorkItemStatus;
@@ -30,6 +31,7 @@ export interface CreateWorkItemRequest {
   status?: WorkItemStatus;
   manualCategory?: WorkItemCategory | null;
   externalKey?: string | null;
+  startAt?: string | null;
 }
 
 export interface UpdateWorkItemRequest {
@@ -43,6 +45,8 @@ export interface UpdateWorkItemRequest {
   requiresActionAt?: string | null;
   completionDueAtSet?: boolean;
   completionDueAt?: string | null;
+  startAtSet?: boolean;
+  startAt?: string | null;
   manualCategorySet?: boolean;
   manualCategory?: WorkItemCategory | null;
   status?: WorkItemStatus;

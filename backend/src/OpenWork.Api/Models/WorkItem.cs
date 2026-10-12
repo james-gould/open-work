@@ -41,6 +41,15 @@ public class WorkItem
     public DateTimeOffset? CompletionDueAt { get; set; }
 
     /// <summary>
+    /// Earliest date this item can physically be started (e.g. a dependency lands, or
+    /// access is granted, on that date). Independent of urgency: a task due soon but not
+    /// startable yet can still resolve to <see cref="WorkItemCategory.Critical"/>, it just
+    /// stays out of the main list/next-pick/nudges until this date arrives, since there is
+    /// nothing to act on before then. Null means it can be started any time.
+    /// </summary>
+    public DateTimeOffset? StartAt { get; set; }
+
+    /// <summary>
     /// Manual override of the computed category. When set, this always wins over the
     /// derived category so a stale "Critical" can be downgraded (or vice versa).
     /// </summary>
