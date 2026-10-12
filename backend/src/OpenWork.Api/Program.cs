@@ -55,10 +55,34 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 // Apply any pending EF Core migrations against the PostgreSQL database on startup.
+// Retries with backoff so a transiently unreachable database (e.g. a Postgres server that
+// auto-paused/stopped and needs a moment to resume) doesn't crash-loop the whole container.
+// If migrations still fail after retries, the app continues starting anyway so /healthz keeps
+// responding; DB-backed requests will fail individually until the database is reachable again.
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    db.Database.Migrate();
+    var startupLogger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
+
+    const int maxAttempts = 5;
+    for (var attempt = 1; attempt <= maxAttempts; attempt++)
+    {
+        try
+        {
+            db.Database.Migrate();
+            break;
+        }
+        catch (Exception ex) when (attempt < maxAttempts)
+        {
+            var delay = TimeSpan.FromSeconds(Math.Pow(2, attempt));
+            startupLogger.LogWarning(ex, "Database migration failed on attempt {Attempt}/{MaxAttempts}; retrying in {Delay}.", attempt, maxAttempts, delay);
+            Thread.Sleep(delay);
+        }
+        catch (Exception ex)
+        {
+            startupLogger.LogError(ex, "Database migration failed after {MaxAttempts} attempts; starting anyway so health checks keep responding. API requests will fail until the database is reachable.", maxAttempts);
+        }
+    }
 }
 
 if (app.Environment.IsDevelopment())
