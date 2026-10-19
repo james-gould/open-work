@@ -283,7 +283,7 @@ async ({ args, log, phase, agent, step, signal }) => {
     }
   }
   const authToken = rawAuthToken.replace(/^Bearer\s+/i, "").trim();
-  const authHeaders = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+  const authHeaders = authToken ? { Authorization: ["Bearer", authToken].join(" ") } : {};
   const creatorSessionId = args.creatorSessionId || null;
   const dryRun = !!args.dryRun;
 
