@@ -1,8 +1,8 @@
 import { useState } from "react";
 import {
   PRIORITY_OPTIONS,
-  dateInputToIso,
-  isoToDateInput,
+  dateTimeInputToIso,
+  isoToDateTimeInput,
   priorityLabel,
   priorityOptionValue
 } from "../priority";
@@ -48,11 +48,34 @@ export function WorkItemCard({ item, onUpdate, onComplete, onDelete }: Props) {
       <div className="work-item-header" onClick={() => setExpanded((v) => !v)}>
         <span className="work-item-dot" aria-hidden="true" />
         <span className="work-item-title">{item.title}</span>
-        {item.status !== "Backlog" && (
-          <span className={`work-item-status status-${item.status.toLowerCase()}`}>{statusLabel}</span>
-        )}
-        <span className="work-item-priority" title="Priority">
-          {priorityLabel(item.priority)}
+        <span className="work-item-header-meta">
+          {item.status !== "Backlog" && (
+            <span className={`work-item-status status-${item.status.toLowerCase()}`}>{statusLabel}</span>
+          )}
+          <span className="work-item-priority" title="Priority">
+            {priorityLabel(item.priority)}
+          </span>
+          {item.completionDueAt && (
+            <span className="work-item-due" title="Due date">
+              Due {formatDate(item.completionDueAt)}
+            </span>
+          )}
+          {item.reference && (
+            <a
+              className="work-item-reference-icon"
+              href={item.reference}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`Open reference for ${item.title}`}
+              title="Open reference"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M14 3h7v7h-2V6.41l-9.29 9.3-1.42-1.42 9.3-9.29H14V3Z" />
+                <path d="M5 5h6V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6h-2v6H5V5Z" />
+              </svg>
+            </a>
+          )}
         </span>
       </div>
 
@@ -160,37 +183,37 @@ export function WorkItemCard({ item, onUpdate, onComplete, onDelete }: Props) {
             <label>
               Due
               <input
-                type="date"
-                value={isoToDateInput(item.completionDueAt)}
+                type="datetime-local"
+                value={isoToDateTimeInput(item.completionDueAt)}
                 onChange={(e) =>
                   void onUpdate(item.id, {
                     completionDueAtSet: true,
-                    completionDueAt: dateInputToIso(e.target.value)
+                    completionDueAt: dateTimeInputToIso(e.target.value)
                   })
                 }
               />
             </label>
             <QuickDateButtons
               onSelect={(date) =>
-                void onUpdate(item.id, { completionDueAtSet: true, completionDueAt: dateInputToIso(date) })
+                void onUpdate(item.id, { completionDueAtSet: true, completionDueAt: dateTimeInputToIso(date) })
               }
             />
 
             <label>
               Can't start until
               <input
-                type="date"
-                value={isoToDateInput(item.startAt)}
+                type="datetime-local"
+                value={isoToDateTimeInput(item.startAt)}
                 onChange={(e) =>
                   void onUpdate(item.id, {
                     startAtSet: true,
-                    startAt: dateInputToIso(e.target.value)
+                    startAt: dateTimeInputToIso(e.target.value)
                   })
                 }
               />
             </label>
             <QuickDateButtons
-              onSelect={(date) => void onUpdate(item.id, { startAtSet: true, startAt: dateInputToIso(date) })}
+              onSelect={(date) => void onUpdate(item.id, { startAtSet: true, startAt: dateTimeInputToIso(date) })}
             />
             <p className="work-item-field-hint">
               Keeps this off the main list and nudges until that date, even if it's Critical by its due date.

@@ -102,6 +102,8 @@ export const api = {
 
   authStatus: () => request<AuthStatusResponse>("/api/auth/status"),
 
+  validateSession: () => request<void>("/api/auth/session"),
+
   setupPin: (pin: string) =>
     request<AuthTokenResponse>("/api/auth/setup", { method: "POST", body: JSON.stringify({ pin }) }),
 
@@ -126,4 +128,3 @@ export const api = {
       body: JSON.stringify(assertionResponse)
     })
 };
-

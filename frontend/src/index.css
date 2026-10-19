@@ -117,6 +117,7 @@ p.muted {
 
 .quick-date-buttons {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.4rem;
 }
 
@@ -186,12 +187,52 @@ p.muted {
 
 .work-item-title {
   flex: 1 1 auto;
+  min-width: 10rem;
   font-weight: 600;
+}
+
+.work-item-header-meta {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem;
 }
 
 .work-item-priority {
   font-size: 0.7rem;
   color: var(--muted-text);
+  white-space: nowrap;
+}
+
+.work-item-due {
+  font-size: 0.75rem;
+  color: var(--muted-text);
+  white-space: nowrap;
+}
+
+.work-item-reference-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 6px;
+  color: var(--muted-text);
+}
+
+.work-item-reference-icon:hover,
+.work-item-reference-icon:focus-visible {
+  color: var(--text);
+  background: rgb(0 0 0 / 6%);
+}
+
+.work-item-reference-icon svg {
+  width: 1rem;
+  height: 1rem;
+  fill: currentColor;
 }
 
 .work-item-status {
@@ -205,6 +246,7 @@ p.muted {
 
 .work-item-controls input[type="text"],
 .work-item-controls input[type="url"],
+.work-item-controls input[type="datetime-local"],
 .work-item-controls textarea {
   min-width: 16rem;
   padding: 0.35rem 0.5rem;

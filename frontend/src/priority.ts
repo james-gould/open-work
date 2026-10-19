@@ -22,19 +22,25 @@ export function priorityOptionValue(priority: number): number {
   return 1;
 }
 
-/** `YYYY-MM-DD` from a date-input -> ISO timestamp (midnight UTC, as the add form has always sent). */
-export function dateInputToIso(value: string): string | null {
+/** Local date-time input value -> ISO timestamp. */
+export function dateTimeInputToIso(value: string): string | null {
   return value ? new Date(value).toISOString() : null;
 }
 
-export function isoToDateInput(iso: string | null): string {
-  return iso ? iso.slice(0, 10) : "";
+/** ISO timestamp -> local `YYYY-MM-DDTHH:mm` value for a datetime-local input. */
+export function isoToDateTimeInput(iso: string | null): string {
+  if (!iso) return "";
+
+  const date = new Date(iso);
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
 }
 
-/** Local calendar date `today + days` as `YYYY-MM-DD`. */
-export function localDatePlusDays(days: number): string {
+/** Local date and time offset from now as `YYYY-MM-DDTHH:mm`. */
+export function localDateTimePlus(days = 0, hours = 0): string {
   const d = new Date();
   d.setDate(d.getDate() + days);
+  d.setHours(d.getHours() + hours);
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }

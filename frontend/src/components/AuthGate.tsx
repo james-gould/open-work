@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../api";
-import { UNAUTHORIZED_EVENT, clearToken, setToken } from "../auth";
+import { UNAUTHORIZED_EVENT, clearToken, getToken, setToken } from "../auth";
 import { ForgotPin } from "./ForgotPin";
 import { PinLogin } from "./PinLogin";
 import { PinSetup } from "./PinSetup";
@@ -25,7 +25,26 @@ export function AuthGate({ children }: Props) {
     try {
       const status = await api.authStatus();
       setHasRecovery(status.hasRecovery);
-      setPhase(status.configured ? "login" : "setup");
+
+      if (!status.configured) {
+        clearToken();
+        setPhase("setup");
+        return;
+      }
+
+      if (!getToken()) {
+        setPhase("login");
+        return;
+      }
+
+      try {
+        await api.validateSession();
+        setPhase("authed");
+      } catch {
+        // A 401 clears the rejected token in the shared request helper. Preserve a
+        // still-present token on transient API failures rather than asking for the PIN.
+        setPhase(getToken() ? "unreachable" : "login");
+      }
     } catch {
       setPhase("unreachable");
     }

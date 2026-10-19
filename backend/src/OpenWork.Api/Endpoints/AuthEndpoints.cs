@@ -30,6 +30,7 @@ public static class AuthEndpoints
     public static RouteGroupBuilder MapAuthEndpoints(this RouteGroupBuilder group)
     {
         group.MapGet("/status", GetStatus);
+        group.MapGet("/session", () => TypedResults.NoContent()).RequireAuthorization();
         group.MapPost("/setup", Setup);
         group.MapPost("/login", Login);
 

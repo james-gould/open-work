@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { PRIORITY_OPTIONS, dateInputToIso } from "../priority";
+import { PRIORITY_OPTIONS, dateTimeInputToIso } from "../priority";
 import type { CreateWorkItemRequest } from "../types";
 import { QuickDateButtons } from "./QuickDateButtons";
 
@@ -31,8 +31,8 @@ export function AddItemForm({ onAdd }: Props) {
         body: body.trim() || null,
         reference: reference.trim() || null,
         priority,
-        completionDueAt: dateInputToIso(completionDate),
-        startAt: dateInputToIso(startDate)
+        completionDueAt: dateTimeInputToIso(completionDate),
+        startAt: dateTimeInputToIso(startDate)
       });
       setTitle("");
       setBody("");
@@ -83,7 +83,7 @@ export function AddItemForm({ onAdd }: Props) {
         <label>
           Due
           <input
-            type="date"
+            type="datetime-local"
             value={completionDate}
             onChange={(e) => setCompletionDate(e.target.value)}
           />
@@ -91,7 +91,7 @@ export function AddItemForm({ onAdd }: Props) {
         <QuickDateButtons onSelect={setCompletionDate} />
         <label>
           Can't start until
-          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          <input type="datetime-local" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
         </label>
         <QuickDateButtons onSelect={setStartDate} />
       </div>
