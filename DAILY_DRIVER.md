@@ -154,18 +154,22 @@ so the live app isn't reachable by anyone who finds the URL.
 
 - **The owner locks the app with a PIN**, not a password: on a blank install,
   the web UI shows a "choose a PIN" screen (`POST /api/auth/setup`); on every
-  later visit it demands that PIN (`POST /api/auth/login`). Both return a JWT
-  that's valid for 365 days - deliberately long-lived, since this app is
-  driven by an unattended hourly sweep as much as a browser, and a
-  silently-expiring token would reintroduce the exact "it stops working and
-  nobody notices" failure mode this whole project exists to avoid.
+  later visit it validates the JWT already in `localStorage` and only demands
+  the PIN (`POST /api/auth/login`) when that token is absent or invalid. Setup
+  and login both return a JWT that's valid for 365 days - deliberately
+  long-lived, since this app is driven by an unattended hourly sweep as much
+  as a browser, and a silently-expiring token would reintroduce the exact "it
+  stops working and nobody notices" failure mode this whole project exists to
+  avoid.
 - **The browser** stores its token in `localStorage` and attaches it to every
   request; logging out just clears it client-side (the token itself isn't
   revoked server-side - there's no server-side session to revoke).
 - **The agent persists its own copy of that same kind of token** in a
   user-scoped environment variable, `OPEN_WORK_API_TOKEN`, set with
   `[Environment]::SetEnvironmentVariable("OPEN_WORK_API_TOKEN", "<token>",
-  "User")` so it survives across terminals/sessions on this machine. Every
+  "User")` so it survives across terminals/sessions on this machine. The
+  stored value should be the raw JWT; the hourly Automation normalizes it
+  before constructing the header. Every
   HTTP call this agent makes to Open Work - the `/pending` lookup, general
   querying, and the hourly workflow's `fetch` calls - must send
   `Authorization: Bearer $env:OPEN_WORK_API_TOKEN`.
@@ -209,11 +213,14 @@ so the live app isn't reachable by anyone who finds the URL.
 - No true OS-level push/toast notification exists in my toolset; the reminder
   is delivered as an in-app session message, which only surfaces if you still
   have that session open/visible.
-- The workflow's `fetch` calls now require `args.authToken` (read from the
-  `OPEN_WORK_API_TOKEN` env var when re-authoring the workflow each run). If
-  that token is missing or has been invalidated (signing key rotated), every
-  Sync/Check call will 401 and the run logs that rather than silently
-  skipping - re-login (PIN) and update the env var to fix it.
+- The workflow resolves authentication internally: an explicit
+  `args.authToken` override wins, then the process environment, then (on
+  Windows) the user-scoped `OPEN_WORK_API_TOKEN` value. It never treats the
+  literal string `$env:OPEN_WORK_API_TOKEN` as a token, and strips an optional
+  leading `Bearer ` before constructing the header. If the value is missing
+  or malformed, the run stops before extraction rather than sending an
+  invalid authorization header. Re-login (PIN) and update the env var to fix
+  a missing or invalid token.
 
 ## Canonical workflow source
 
@@ -235,7 +242,7 @@ Automation reads this `meta` and `run` and re-authors the workflow with
   ],
   "argsSchema": {
     "type": "object",
-    "required": ["apiBaseUrl", "authToken"],
+    "required": ["apiBaseUrl"],
     "properties": {
       "apiBaseUrl": { "type": "string" },
       "authToken": { "type": "string" },
@@ -251,10 +258,39 @@ Automation reads this `meta` and `run` and re-authors the workflow with
 ```js
 async ({ args, log, phase, agent, step, signal }) => {
   const apiBaseUrl = String(args.apiBaseUrl || "").replace(/\/$/, "");
-  const authToken = String(args.authToken || "");
+  let rawAuthToken = String(args.authToken || "").trim();
+  if (!rawAuthToken && typeof process !== "undefined") {
+    rawAuthToken = String(process.env.OPEN_WORK_API_TOKEN || "").trim();
+  }
+  if (!rawAuthToken && typeof process !== "undefined" && process.platform === "win32") {
+    try {
+      const { execFile } = await import("node:child_process");
+      const { promisify } = await import("node:util");
+      const execFileAsync = promisify(execFile);
+      const result = await execFileAsync(
+        "powershell",
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          "[Environment]::GetEnvironmentVariable('OPEN_WORK_API_TOKEN', 'User')"
+        ],
+        { windowsHide: true, signal }
+      );
+      rawAuthToken = String(result.stdout || "").trim();
+    } catch (err) {
+      log(`Could not read the user-scoped OPEN_WORK_API_TOKEN: ${String(err && err.message || err)}`);
+    }
+  }
+  const authToken = rawAuthToken.replace(/^Bearer\s+/i, "").trim();
   const authHeaders = authToken ? { Authorization: `Bearer ${authToken}` } : {};
   const creatorSessionId = args.creatorSessionId || null;
   const dryRun = !!args.dryRun;
+
+  if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(authToken)) {
+    log("Open Work sync skipped: OPEN_WORK_API_TOKEN is missing or is not a valid JWT. Log in with the PIN, then persist the raw token in the user-scoped environment variable.");
+    return { synced: [], remindedCount: 0, items: [], authError: true };
+  }
 
   phase("Extract");
   const extraction = await agent(
